@@ -1,0 +1,43 @@
+{
+  "name": "terrarium",
+  "version": "0.1.0",
+  "description": "Frogpond: an ordinary Uniswap V2 dapp, and the Terrarium that lets you click through it with no chain, no node and no extension",
+  "main": "index.js",
+  "scripts": {
+    "build:contracts": "node scripts/build-contracts.mjs",
+    "build:terrarium": "terrarium build",
+    "dev": "vite",
+    "build": "npm run build:contracts && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "e2e": "npm run build:contracts && VITE_TERRARIUM=off vite build && npm run build:terrarium && node e2e/frogpond.e2e.mjs",
+    "e2e:install": "npx playwright install chromium",
+    "test:uniswap": "node test/uniswap-v2.mjs",
+    "test:fork": "node test/fork-offline.mjs",
+    "test:fork:record": "node test/fork-record.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "private": "true",
+  "dependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "terrarium": "*",
+    "viem": "^2.56.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-react": "^6.1.1",
+    "playwright": "^1.62.1",
+    "solc": "^0.8.36",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  },
+  "workspaces": [
+    "packages/*"
+  ]
+}

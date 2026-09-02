@@ -1,0 +1,7 @@
+node_modules
+dist
+dist-terrarium
+.terrarium
+contracts/out
+e2e/*.png
+.DS_Store
