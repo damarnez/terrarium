@@ -1,8 +1,8 @@
 # Terrarium
 
 A complete EVM chain that lives inside the page, presented to your dapp as a wallet. Real bytecode execution
-(`@ethereumjs/vm`), real receipts, logs and reverts, byte-identical to Anvil. No node process, no browser extension,
-no faucet. Your dapp does not know it is there.
+(revm compiled to WebAssembly, or `@ethereumjs/vm`), real, verifiable blocks, receipts, logs and reverts,
+byte-identical to Anvil. No node process, no browser extension, no faucet. Your dapp does not know it is there.
 
 Two things it is for that a local node cannot do:
 
@@ -87,12 +87,23 @@ await sim.provider.request({ method: 'terrarium_setWallet', params: [{ rejectNex
 Fork a live chain instead of starting empty: `createTerrarium({ chainId: 1, fork: { url, blockNumber } })`; every
 remote read is recorded, so `sim.dumpState()` is an offline fixture (`test/fork-record.mjs` / `test/fork-offline.mjs`).
 
+## Engines and speed
+Two execution engines behind one interface, both verified byte for byte against Anvil by `npm run test:uniswap`:
+
+| engine | what | 14-tx Uniswap scenario incl. 14 gas estimations |
+|---|---|---|
+| `revm` (default) | revm 43 compiled to WebAssembly (`packages/terrarium-evm`, 1.5 MB wasm, no C deps) | 115 ms (28 ms inside the wasm) |
+| `js` | `@ethereumjs/vm`, the reference | 382 ms |
+| Anvil, native, for comparison | | 59 ms |
+
+The wasm engine only executes; state, checkpoints, persistence and fork recording stay in JavaScript. revm reads state
+through a synchronous, checkpoint-aware mirror; anything the mirror has never seen is zero (local chain) or fetched
+and re-run (fork mode), so the same code path serves both. `mockContract` is JS-engine only for now.
+Rebuild the wasm with `npm run build:wasm` (needs `rustup target add wasm32-unknown-unknown` and `wasm-bindgen-cli`).
+
 ## Honest limits
-- The engine is a JavaScript EVM interpreter, ~40× slower than Anvil (2.3 s vs 70 ms for the 14-tx differential
-  run, most of it gas estimation). Use `gasEstimation: 'fast'` in CI; a WASM EVM behind the same interface is the
-  planned fix.
-- Block headers carry zero state/transactions/receipts roots and an empty bloom. Hashes are well-formed, not
-  verifiable.
+- Fork mode has no local state trie (remote state is unknown), so forked chains report a placeholder `stateRoot`
+  (configurable). Everything else in the header is real and verifiable in every mode.
 - No `eth_subscribe` push yet (viem polls, which works).
 
 ## Docs

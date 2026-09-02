@@ -1,0 +1,25 @@
+[package]
+name = "terrarium-evm"
+version = "0.1.0"
+edition = "2021"
+description = "revm compiled to WebAssembly as a Terrarium execution backend"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# no C dependencies (secp256k1 / c-kzg / blst are replaced by their pure-Rust fallbacks), so it builds for wasm32
+revm = { version = "43", default-features = false, features = ["std", "optional_balance_check", "optional_block_gas_limit", "optional_no_base_fee", "optional_eip3607"] }
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"
+# wasm32-unknown-unknown has no OS entropy source: route getrandom (pulled in transitively) through the browser/Node APIs
+getrandom = { version = "0.2", features = ["js"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

@@ -5,3 +5,4 @@ dist-terrarium
 contracts/out
 e2e/*.png
 .DS_Store
+packages/terrarium-evm/target

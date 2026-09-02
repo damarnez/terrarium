@@ -6,13 +6,15 @@
 // persistence (localStorage / IndexedDB / fixtures), journal replay, fork mode with offline
 // fixtures, and following a live chain's block numbers.
 
-import { createVM, runTx } from '@ethereumjs/vm';
-import { SimpleStateManager, RPCStateManager } from '@ethereumjs/statemanager';
-import { createBlock } from '@ethereumjs/block';
+import { createVM, runTx, encodeReceipt, Bloom } from '@ethereumjs/vm';
+import { SimpleStateManager, RPCStateManager, MerkleStateManager } from '@ethereumjs/statemanager';
+import { createBlock, createBlockHeader, genTransactionsTrieRoot, Block } from '@ethereumjs/block';
+import { MerklePatriciaTrie } from '@ethereumjs/mpt';
+import { RLP } from '@ethereumjs/rlp';
 import { Common, Hardfork, Mainnet } from '@ethereumjs/common';
 import { createFeeMarket1559Tx, createTxFromRLP } from '@ethereumjs/tx';
-import { Account, createAddressFromString, createAddressFromPrivateKey, hexToBytes, bytesToHex } from '@ethereumjs/util';
-import { keccak256, numberToHex, hexToBigInt, encodeFunctionResult, decodeFunctionData, encodeErrorResult, encodeFunctionData, toHex, isAddressEqual, getAddress, pad, concat, encodeAbiParameters, stringToHex, bytesToBigInt as viemBytesToBigInt } from 'viem';
+import { Account, createAddressFromString, createAddressFromPrivateKey, hexToBytes, bytesToHex, KECCAK256_NULL } from '@ethereumjs/util';
+import { BaseError as ViemBaseError, keccak256, numberToHex, hexToBigInt, encodeFunctionResult, decodeFunctionData, encodeErrorResult, encodeFunctionData, toHex, isAddressEqual, getAddress, pad, concat, encodeAbiParameters, stringToHex, bytesToBigInt as viemBytesToBigInt } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
 // The 10 Anvil / Hardhat default test keys — every dapp dev already knows these addresses.
@@ -51,9 +53,9 @@ class RecordingRPCStateManager extends RPCStateManager {
   async commit() { this._caches.commit(); }
   /** public RPCs rate-limit and hiccup; retry with backoff instead of failing the whole tx */
   async retry(fn) { let last; for (let i = 0; i < 5; i++) { try { return await fn(); } catch (e) { last = e; await new Promise((r) => setTimeout(r, 250 * 2 ** i)); } } throw last; }
-  async getAccount(address) { const a = await this.retry(() => super.getAccount(address)); this.remote.accounts.set(address.toString(), a ?? null); return a; }
+  async getAccount(address) { if (globalThis.process?.env?.TERRARIUM_DEBUG && this._caches.account.get(address) === undefined) console.log('[remote] account', address.toString(), new Error().stack.split('\n').slice(2, 7).map((l) => l.trim()).join(' <- ')); const a = await this.retry(() => super.getAccount(address)); this.remote.accounts.set(address.toString(), a ?? null); return a; }
   async getCode(address) { const c = await this.retry(() => super.getCode(address)); this.remote.code.set(address.toString(), c); return c; }
-  async getStorage(address, key) { const v = await this.retry(() => super.getStorage(address, key)); this.remote.storage.set(`${address.toString()}_${bytesToHex(key)}`, v); return v; }
+  async getStorage(address, key) { if (globalThis.process?.env?.TERRARIUM_DEBUG && this._caches.storage.get(address, key) === undefined) console.log('[remote] storage', address.toString(), bytesToHex(key)); const v = await this.retry(() => super.getStorage(address, key)); this.remote.storage.set(`${address.toString()}_${bytesToHex(key)}`, v); return v; }
 }
 
 const STATE_CHANGING = new Set(['eth_sendTransaction', 'eth_sendRawTransaction', 'evm_mine', 'anvil_mine', 'hardhat_mine', 'evm_setNextBlockTimestamp', 'anvil_setNextBlockTimestamp', 'evm_increaseTime', 'anvil_increaseTime', 'evm_setAutomine', 'anvil_setAutomine', 'anvil_setBalance', 'hardhat_setBalance', 'anvil_setCode', 'hardhat_setCode', 'anvil_setNonce', 'hardhat_setNonce', 'anvil_setStorageAt', 'hardhat_setStorageAt', 'anvil_impersonateAccount', 'hardhat_impersonateAccount', 'anvil_stopImpersonatingAccount', 'hardhat_stopImpersonatingAccount', 'anvil_setNextBlockBaseFeePerGas', 'hardhat_setNextBlockBaseFeePerGas', 'sim_deal', 'sim_setState']);
@@ -73,16 +75,29 @@ export function indexedDBStorage(dbName = 'terrarium', storeName = 'kv') {
 const WALLET_METHODS = new Set(['eth_sendTransaction', 'eth_requestAccounts', 'personal_sign', 'eth_signTypedData_v4', 'wallet_switchEthereumChain', 'wallet_addEthereumChain', 'wallet_requestPermissions']);
 const SIGNING_METHODS = new Set(['eth_sendTransaction', 'personal_sign', 'eth_signTypedData_v4']);
 
-class RpcError extends Error {
-  constructor(code, message, data) { super(message); this.code = code; this.data = data; }
+/** EIP-1193 / JSON-RPC error: { code, message, data }. It extends viem's BaseError on purpose: viem passes its own
+ *  error classes through untouched (like the errors its http transport raises), while a foreign error with an
+ *  unknown code is wrapped as "unknown" and retried three times with backoff — a full second per reverted estimate. */
+class RpcError extends ViemBaseError {
+  constructor(code, message, data) { super(message, { name: 'RpcError', details: message }); this.code = code; this.data = data; }
 }
 
 /** Anvil-compatible revert error, so viem decodes custom errors / reason strings unchanged. */
-function revertError(execResult) {
-  const data = bytesToHex(execResult.returnValue ?? new Uint8Array());
-  const kind = execResult.exceptionError?.error ?? 'revert';
+function revertError(r) {
+  const data = bytesToHex(r.returnValue ?? new Uint8Array());
+  const kind = r.error ?? 'revert';
   if (kind === 'revert') return new RpcError(3, 'execution reverted', data);
   return new RpcError(-32000, `execution failed: ${kind}`, data);
+}
+
+/** Load the revm/WebAssembly engine (package `terrarium-evm`). In Node the wasm bytes are read from disk; in the browser
+ *  the glue resolves the .wasm next to itself (Vite turns that into an asset, or a data URL in the standalone bundle). */
+async function loadRevm(o = {}) {
+  const mod = o.module ?? (await import('terrarium-evm'));
+  if (o.wasm) await mod.default({ module_or_path: o.wasm });
+  else if (globalThis.process?.versions?.node) { const fs = await import(/* @vite-ignore */ 'node:' + 'fs'); await mod.default({ module_or_path: fs.readFileSync(new URL('./terrarium_evm_bg.wasm', import.meta.resolve('terrarium-evm'))) }); }
+  else await mod.default();
+  return mod;
 }
 
 export async function createTerrarium(opts = {}) {
@@ -120,9 +135,13 @@ export async function createTerrarium(opts = {}) {
   };
 
   // ---- state: in-memory, or lazily forked from a live RPC ------------------------------------
+  // 'merkle' (default): a real Merkle Patricia trie, so every block header carries a real stateRoot.
+  // 'simple': flat maps, a little faster, stateRoot is the `stateRoot` option (default zero). Fork mode has no local
+  // trie (remote state is unknown), so it also reports the placeholder.
+  const stateMode = opts.fork ? 'rpc' : (opts.state ?? 'merkle');
   const stateManager = opts.fork
     ? new RecordingRPCStateManager({ provider: opts.fork.url, blockTag: BigInt(opts.fork.blockNumber), common })
-    : new SimpleStateManager({ common });
+    : stateMode === 'merkle' ? new MerkleStateManager({ common }) : new SimpleStateManager({ common });
 
   const customPrecompiles = [];
   const vm = await createVM({
@@ -131,14 +150,127 @@ export async function createTerrarium(opts = {}) {
     evmOpts: { allowUnlimitedContractSize: true, customPrecompiles },
   });
 
+  // ---- execution engine: 'js' (@ethereumjs/vm, the reference) or 'revm' (revm compiled to WebAssembly) -----------
+  const engine = opts.engine ?? 'js';
+  const revm = engine === 'revm' ? await loadRevm(opts.revm) : null;
+
   // ---- write log: every local state write is recorded so dumpState() can serialize the diff -----
+  // ---- state mirror (revm only): revm reads state synchronously, the state managers are async. Every write goes
+  //      through these hooks, so a checkpoint-aware mirror of everything written since boot can answer most reads
+  //      synchronously; anything else is a "miss": revm aborts, the miss is loaded (from the trie, or the forked
+  //      chain — recorded as usual), and the transaction is re-run. Misses converge fast: state loaded on a miss was
+  //      never written since boot, so it is committed truth and lands in the base layer.
   const touched = { accounts: new Set(), code: new Set(), storage: new Map() };
-  {
-    const sm = vm.stateManager;
-    for (const m of ['putAccount', 'deleteAccount', 'modifyAccountFields']) { const orig = sm[m].bind(sm); sm[m] = (a, ...rest) => { touched.accounts.add(a.toString()); return orig(a, ...rest); }; }
-    const origCode = sm.putCode.bind(sm); sm.putCode = (a, v) => { touched.code.add(a.toString()); touched.accounts.add(a.toString()); return origCode(a, v); };
-    const origStorage = sm.putStorage.bind(sm); sm.putStorage = (a, k, v) => { const key = a.toString(); if (!touched.storage.has(key)) touched.storage.set(key, new Set()); touched.storage.get(key).add(bytesToHex(k)); return origStorage(a, k, v); };
+  const KECCAK_EMPTY = bytesToHex(KECCAK256_NULL);
+  const newLayer = () => ({ accounts: new Map(), code: new Map(), storage: new Map(), cleared: new Set() });
+  const mirror = [newLayer()];
+  const top = () => mirror[mirror.length - 1];
+  const acctView = (acct) => (acct ? { balance: acct.balance, nonce: acct.nonce, codeHash: bytesToHex(acct.codeHash) } : null);
+  const pad32hex = (v) => '0x' + bytesToHex(v).slice(2).padStart(64, '0');
+  function mirrorGet(kind, key) {
+    for (let i = mirror.length - 1; i >= 0; i--) { const L = mirror[i]; if (L[kind].has(key)) return L[kind].get(key); if (kind === 'storage' && L.cleared.has(key.slice(0, 42))) return ZERO32; }
+    return undefined;
   }
+  async function mirrorLoad(kind, key) {
+    const sm = vm.stateManager, base = mirror[0];
+    if (globalThis.process?.env?.TERRARIUM_DEBUG) console.log('[miss]', kind, key);
+    if (kind === 'accounts') base.accounts.set(key, acctView(await sm.getAccount(createAddressFromString(key))));
+    else if (kind === 'code') base.code.set(key, bytesToHex(await sm.getCode(createAddressFromString(key))));
+    else { const [addr, slot] = key.split(':'); base.storage.set(key, pad32hex(await sm.getStorage(createAddressFromString(addr), hexToBytes(slot)))); }
+  }
+  {
+    const sm = vm.stateManager, m = engine === 'revm';
+    const origPut = sm.putAccount.bind(sm); sm.putAccount = async (a, acct) => { touched.accounts.add(a.toString()); await origPut(a, acct); if (m) top().accounts.set(a.toString().toLowerCase(), acctView(acct)); };
+    const origDel = sm.deleteAccount.bind(sm); sm.deleteAccount = async (a) => { touched.accounts.add(a.toString()); await origDel(a); if (m) { const k = a.toString().toLowerCase(); top().accounts.set(k, null); top().code.set(k, '0x'); top().cleared.add(k); } };
+    const origMod = sm.modifyAccountFields.bind(sm); sm.modifyAccountFields = async (a, f) => { touched.accounts.add(a.toString()); await origMod(a, f); if (m) top().accounts.set(a.toString().toLowerCase(), acctView(await sm.getAccount(a))); };
+    // (no getAccount here: during a fixture restore code is seeded before accounts, and a read would go to the forked chain)
+    const origCode = sm.putCode.bind(sm); sm.putCode = async (a, v) => { touched.code.add(a.toString()); touched.accounts.add(a.toString()); await origCode(a, v); if (m) { const k = a.toString().toLowerCase(); top().code.set(k, bytesToHex(v)); const cur = mirrorGet('accounts', k); if (cur) top().accounts.set(k, { ...cur, codeHash: keccak256(bytesToHex(v)) }); } };
+    const origStorage = sm.putStorage.bind(sm); sm.putStorage = async (a, k, v) => { const key = a.toString(); if (!touched.storage.has(key)) touched.storage.set(key, new Set()); touched.storage.get(key).add(bytesToHex(k)); await origStorage(a, k, v); if (m) top().storage.set(`${key.toLowerCase()}:${pad32hex(k)}`, pad32hex(v)); };
+    const origClear = sm.clearStorage.bind(sm); sm.clearStorage = async (a) => { await origClear(a); if (m) { const k = a.toString().toLowerCase(); top().cleared.add(k); for (const key of [...top().storage.keys()]) if (key.startsWith(k + ':')) top().storage.delete(key); } };
+    if (m) {
+      const origCp = sm.checkpoint.bind(sm); sm.checkpoint = async () => { await origCp(); mirror.push(newLayer()); };
+      const origCommit = sm.commit.bind(sm); sm.commit = async () => { await origCommit(); if (mirror.length > 1) { const L = mirror.pop(), P = top(); for (const k of L.cleared) { P.cleared.add(k); for (const key of [...P.storage.keys()]) if (key.startsWith(k + ':')) P.storage.delete(key); } for (const kind of ['accounts', 'code', 'storage']) for (const [k, v] of L[kind]) P[kind].set(k, v); } };
+      const origRevert = sm.revert.bind(sm); sm.revert = async () => { await origRevert(); if (mirror.length > 1) mirror.pop(); };
+    }
+  }
+
+  // ---- the two backends produce one result shape --------------------------------------------------------------
+  // { success, error, gasUsed, gasRefund, returnValue: Uint8Array, logs: [[addr, topics[], data]] (bytes), createdAddress, sloads: [{address, slot}] }
+  const bloomOf = (logs) => { const b = new Bloom(undefined, common); for (const [addr, topics] of logs) { b.add(addr); for (const t of topics) b.add(t); } return b; };
+  async function execJs({ tx, msg, block, flags = {} }) {
+    const reads = [];
+    const listener = flags.traceSloads ? (step) => { if (step.opcode.name === 'SLOAD') reads.push({ address: step.address.toString().toLowerCase(), slot: numberToHex(step.stack[step.stack.length - 1], { size: 32 }) }); } : null;
+    if (listener) vm.evm.events.on('step', listener);
+    try {
+      if (!tx) {   // message call (eth_call): no intrinsic gas, no nonce, no fee
+        const r = await vm.evm.runCall({ caller: createAddressFromString(msg.from), to: msg.to ? createAddressFromString(msg.to) : undefined, data: hexToBytes(msg.data), value: msg.value, gasLimit: msg.gasLimit, block, skipBalance: true });
+        return { success: !r.execResult.exceptionError, error: r.execResult.exceptionError?.error ?? null, gasUsed: r.execResult.executionGasUsed, gasRefund: 0n, returnValue: r.execResult.returnValue ?? new Uint8Array(), logs: r.execResult.logs ?? [], createdAddress: r.createdAddress?.toString() ?? null, sloads: reads };
+      }
+      const res = await runTx(vm, { tx, block, skipNonce: !!flags.skipNonce, skipBalance: !!flags.skipBalance, skipHardForkValidation: true, skipBlockGasLimitValidation: true, blockGasUsed: flags.blockGasUsed ?? 0n });
+      return { success: !res.execResult.exceptionError, error: res.execResult.exceptionError?.error ?? null, gasUsed: res.totalGasSpent, gasRefund: res.gasRefund ?? 0n, returnValue: res.execResult.returnValue ?? new Uint8Array(), logs: res.execResult.logs ?? [], createdAddress: res.createdAddress?.toString() ?? null, sloads: reads };
+    } finally { if (listener) vm.evm.events.removeListener('step', listener); }
+  }
+  const msgOf = (tx) => ({ from: tx.getSenderAddress().toString(), to: tx.to ? tx.to.toString() : null, value: tx.value, data: bytesToHex(tx.data), gasLimit: tx.gasLimit, gasPrice: tx.maxFeePerGas ?? tx.gasPrice ?? 0n, priorityFee: tx.maxPriorityFeePerGas ?? tx.gasPrice ?? 0n, nonce: tx.nonce });
+  const misses = [];
+  const stats = { runs: 0, rounds: 0, wasmMs: 0 };
+  // Without a fork, the mirror has seen every write since genesis: something it has never seen simply does not exist
+  // (account) or is zero (slot). No round trip, no re-run. With a fork the truth may be remote: load it (recorded).
+  const local = stateMode !== 'rpc';
+  const revmHost = {
+    account(address) {
+      const key = address.toLowerCase(); let a = mirrorGet('accounts', key);
+      if (a === undefined) {
+        if (local) { mirror[0].accounts.set(key, null); a = null; }
+        else {
+          // fork mode. A DELEGATECALL target (proxy implementation) only needs its code, which the JS engine reads without
+          // ever loading the account — so recorded fixtures have the code but not the account. Synthesize it rather than
+          // fetch: balance/nonce of an implementation contract are irrelevant to the call, and offline replay stays offline.
+          const code = mirrorGet('code', key);
+          if (code !== undefined && code !== '0x') { a = { balance: 0n, nonce: 1n, codeHash: keccak256(code) }; mirror[0].accounts.set(key, a); }
+          else { misses.push(() => mirrorLoad('accounts', key)); throw { missing: true }; }
+        }
+      }
+      if (a === null) return null;
+      let code = '0x';
+      if (a.codeHash !== KECCAK_EMPTY) { code = mirrorGet('code', key); if (code === undefined) { misses.push(() => mirrorLoad('code', key)); throw { missing: true }; } }
+      return { balance: hex(a.balance), nonce: hex(a.nonce), codeHash: a.codeHash, code };
+    },
+    storage(address, slot) { const key = `${address.toLowerCase()}:${slot.toLowerCase()}`; const v = mirrorGet('storage', key); if (v !== undefined) return v; if (local) { mirror[0].storage.set(key, ZERO32); return ZERO32; } misses.push(() => mirrorLoad('storage', key)); throw { missing: true }; },
+    blockHash(n) { return blocks.find((b) => b.number === BigInt(Math.trunc(n)))?.hash ?? ZERO32; },
+  };
+  async function applyRevmState(changes) {
+    const sm = vm.stateManager;
+    for (const c of changes) {
+      const a = createAddressFromString(c.address);
+      if (c.deleted) { await sm.deleteAccount(a); continue; }
+      if (c.code) await sm.putCode(a, hexToBytes(c.code));
+      await sm.modifyAccountFields(a, { balance: hexToBigInt(c.balance), nonce: hexToBigInt(c.nonce) });
+      for (const [slot, value] of c.storage) await sm.putStorage(a, hexToBytes(slot), hexToBytes(value));
+    }
+  }
+  async function execRevm({ tx, msg, block, flags = {} }) {
+    let m = tx ? msgOf(tx) : { ...msg, gasPrice: 0n, priorityFee: 0n, nonce: 0n };
+    if (!tx) flags = { ...flags, skipBalance: true, skipNonce: true, noBaseFee: true, skipEip3607: true };
+    const req = JSON.stringify({ tx: { from: m.from, to: m.to, value: hex(m.value), data: m.data, gasLimit: hex(m.gasLimit), gasPrice: hex(m.gasPrice), priorityFee: hex(m.priorityFee), nonce: hex(m.nonce), txType: 2 },
+      block: { number: hex(block.header.number), timestamp: hex(block.header.timestamp), gasLimit: hex(block.header.gasLimit), baseFee: hex(block.header.baseFeePerGas ?? 0n) },
+      cfg: { chainId, spec: String(hardfork), skipBalance: !!flags.skipBalance, skipNonce: !!flags.skipNonce, skipBlockGasLimit: true, noBaseFee: !!flags.noBaseFee, skipEip3607: !!flags.skipEip3607, traceSloads: !!flags.traceSloads } });
+    stats.runs++;
+    for (let round = 0; ; round++) {
+      misses.length = 0; stats.rounds++;
+      let out;
+      const t0 = Date.now();
+      try { out = JSON.parse(revm.run(revmHost, req)); stats.wasmMs += Date.now() - t0; }
+      catch (e) {
+        stats.wasmMs += Date.now() - t0;
+        if (misses.length) { if (round > 100000) throw new Error('revm: state loading did not converge'); for (const load of misses.splice(0)) await load(); continue; }
+        const message = String(e?.message ?? e);
+        throw new Error(message.startsWith('invalid:') ? message : `revm: ${message}`);
+      }
+      await applyRevmState(out.state);
+      return { success: out.success, error: out.success ? null : out.reason, gasUsed: BigInt(out.gasUsed), gasRefund: BigInt(out.gasRefunded), returnValue: hexToBytes(out.output), logs: out.logs.map((l) => [hexToBytes(l.address), l.topics.map(hexToBytes), hexToBytes(l.data)]), createdAddress: out.created, sloads: out.sloads.map(([address, slot]) => ({ address: address.toLowerCase(), slot })) };
+    }
+  }
+  const exec = engine === 'revm' ? execRevm : execJs;
 
   // ---- chain bookkeeping ----------------------------------------------------------------------
   const blocks = [];          // index = block number - genesisNumber
@@ -171,12 +303,28 @@ export async function createTerrarium(opts = {}) {
     blocks.push(b);
     return b;
   }
-  // genesis
-  pushBlock({ number: genesisNumber, hash: keccak256(toHex(`terrarium-genesis-${chainId}-${genesisNumber}`)), parentHash: ZERO32, timestamp: now(), baseFeePerGas: baseFee, gasLimit, gasUsed: 0n, logs: [] }, [], []);
-  const latest = () => blocks[blocks.length - 1];
+  const stateRootOf = async () => (stateMode === 'merkle' ? bytesToHex(await vm.stateManager.getStateRoot()) : (opts.stateRoot ?? ZERO32));
+  /** A real, verifiable header: real stateRoot (merkle mode), transactions trie, receipts trie and bloom. A client can
+   *  recompute the hash from the RPC fields and the roots from the returned txs and receipts (test/uniswap-v2.mjs does). */
+  async function sealHeader({ number, parentHash, timestamp, gasUsed, txs, receipts }) {
+    const trie = new MerklePatriciaTrie();
+    for (const [i, r] of receipts.entries()) await trie.put(RLP.encode(i), encodeReceipt(r, txs[i].type));
+    const bloom = new Bloom(undefined, common);
+    for (const r of receipts) bloom.or(new Bloom(r.bitvector, common));
+    const header = createBlockHeader({ number, parentHash, timestamp, gasLimit, gasUsed, baseFeePerGas: baseFee, coinbase: '0x0000000000000000000000000000000000000000',
+      stateRoot: await stateRootOf(), transactionsTrie: await genTransactionsTrieRoot(txs), receiptTrie: trie.root(), logsBloom: bloom.bitvector }, { common, skipConsensusFormatValidation: true });
+    let size = 0; try { size = new Block(header, txs, [], [], { common, skipConsensusFormatValidation: true }).serialize().length; } catch { size = header.serialize().length; }
+    return { hash: bytesToHex(header.hash()), header: header.toJSON(), size: hex(size) };
+  }
 
-  // fund test accounts
+  // fund test accounts, then seal a real genesis over that state
   for (const a of accounts) await vm.stateManager.putAccount(createAddressFromString(a.address), new Account(0n, 10_000n * 10n ** 18n));
+  {
+    const ts = now();
+    const sealed = await sealHeader({ number: genesisNumber, parentHash: ZERO32, timestamp: ts, gasUsed: 0n, txs: [], receipts: [] });
+    pushBlock({ number: genesisNumber, ...sealed, parentHash: ZERO32, timestamp: ts, baseFeePerGas: baseFee, gasLimit, gasUsed: 0n, logs: [] }, [], []);
+  }
+  const latest = () => blocks[blocks.length - 1];
 
   const nextTimestampFor = (parent) => nextTimestamp ?? (parent.timestamp + 1n > now() ? parent.timestamp + 1n : now());
   /** The block a tx sent right now would land in. eth_estimateGas MUST simulate against it, not against `latest`:
@@ -209,14 +357,12 @@ export async function createTerrarium(opts = {}) {
     if (!impersonated.has(from.toLowerCase()) && !opts.impersonateAll) throw new RpcError(-32000, `no key for ${from}; call anvil_impersonateAccount first`);
     return impersonatedTx(data, from);
   }
-  /** unsigned tx whose sender we dictate (what Tevm's createImpersonatedTx / Anvil do) */
+  /** A tx whose sender we dictate (impersonation). Like Anvil, it carries a fake signature that encodes the sender
+   *  (r = from address), so it serializes, hashes and sits in the transactions trie like any other tx. */
   function impersonatedTx(data, from) {
     const fromAddr = createAddressFromString(from);
-    const tx = createFeeMarket1559Tx(data, { common, freeze: false });
-    const fakeHash = hexToBytes(keccak256(toHex(`${from}:${data.nonce}:${bytesToHex(tx.getMessageToSign())}`)));
+    const tx = createFeeMarket1559Tx({ ...data, v: 0n, r: hexToBigInt(from), s: 1n }, { common, freeze: false });
     tx.getSenderAddress = () => fromAddr;
-    tx.isSigned = () => true;
-    tx.hash = () => fakeHash;
     tx.getSenderPublicKey = () => new Uint8Array(64);
     return tx;
   }
@@ -236,29 +382,29 @@ export async function createTerrarium(opts = {}) {
       const header = { number: parent.number + 1n, parentHash: parent.hash, timestamp: ts, baseFeePerGas: baseFee, gasLimit, gasUsed: 0n };
       const block = execBlock(header);
       const batch = pending.splice(0, pending.length);
-      const receipts = [], hashes = [], blockLogs = [];
+      const receipts = [], hashes = [], blockLogs = [], sealTxs = [], sealReceipts = [];
       let cumulative = 0n, logIndex = 0;
       for (let idx = 0; idx < batch.length; idx++) {
         const entry = batch[idx];
-        let res;
+        let r;
         try {
-          res = await runTx(vm, { tx: entry.tx, block, skipHardForkValidation: true, skipBlockGasLimitValidation: true, blockGasUsed: cumulative });
+          r = await exec({ tx: entry.tx, block, flags: { blockGasUsed: cumulative } });
         } catch (e) { // invalid tx (nonce too low, insufficient funds...): a node would drop it silently and the dapp
           // would wait for a receipt forever. Record a failed receipt instead so waiters resolve and the reason is visible.
           const t = txs.get(entry.hash); t.error = String(e.message);
           receipts.push({ transactionHash: entry.hash, transactionIndex: hex(idx), from: entry.from, to: entry.rpc.to, cumulativeGasUsed: hex(cumulative), gasUsed: '0x0', effectiveGasPrice: hex(baseFee), contractAddress: null, logs: [], logsBloom: '0x' + '00'.repeat(256), status: '0x0', type: '0x2', droppedReason: t.error });
-          hashes.push(entry.hash); continue;
+          hashes.push(entry.hash); sealTxs.push(entry.tx); sealReceipts.push({ status: 0, cumulativeBlockGasUsed: cumulative, bitvector: new Uint8Array(256), logs: [] }); continue;
         }
-        cumulative += res.totalGasSpent;
-        if (globalThis.process?.env?.TERRARIUM_DEBUG && res.execResult.exceptionError) console.log('[tx reverted]', entry.hash, res.execResult.exceptionError.error, bytesToHex(res.execResult.returnValue), 'gasUsed', res.totalGasSpent, 'gasLimit', entry.tx.gasLimit);
-        const logs = (res.execResult.logs ?? []).map(([addr, topics, data]) => ({ address: bytesToHex(addr), topics: topics.map(bytesToHex), data: bytesToHex(data), blockNumber: hex(header.number), transactionHash: entry.hash, transactionIndex: hex(idx), logIndex: hex(logIndex++), removed: false }));
-        const receipt = { transactionHash: entry.hash, transactionIndex: hex(idx), from: entry.from, to: entry.rpc.to, cumulativeGasUsed: hex(cumulative), gasUsed: hex(res.totalGasSpent), effectiveGasPrice: hex(entry.tx.maxPriorityFeePerGas + baseFee < entry.tx.maxFeePerGas ? entry.tx.maxPriorityFeePerGas + baseFee : entry.tx.maxFeePerGas),
-          contractAddress: res.createdAddress ? res.createdAddress.toString() : null, logs, logsBloom: bytesToHex(res.receipt.bitvector), status: res.receipt.status ? '0x1' : '0x0', type: '0x2' };
-        receipts.push(receipt); hashes.push(entry.hash); blockLogs.push(...logs);
+        cumulative += r.gasUsed;
+        if (globalThis.process?.env?.TERRARIUM_DEBUG && !r.success) console.log('[tx reverted]', entry.hash, r.error, bytesToHex(r.returnValue), 'gasUsed', r.gasUsed, 'gasLimit', entry.tx.gasLimit);
+        const bloom = bloomOf(r.logs);
+        const logs = r.logs.map(([addr, topics, data]) => ({ address: bytesToHex(addr), topics: topics.map(bytesToHex), data: bytesToHex(data), blockNumber: hex(header.number), transactionHash: entry.hash, transactionIndex: hex(idx), logIndex: hex(logIndex++), removed: false }));
+        const receipt = { transactionHash: entry.hash, transactionIndex: hex(idx), from: entry.from, to: entry.rpc.to, cumulativeGasUsed: hex(cumulative), gasUsed: hex(r.gasUsed), effectiveGasPrice: hex(entry.tx.maxPriorityFeePerGas + baseFee < entry.tx.maxFeePerGas ? entry.tx.maxPriorityFeePerGas + baseFee : entry.tx.maxFeePerGas),
+          contractAddress: r.createdAddress, logs, logsBloom: bytesToHex(bloom.bitvector), status: r.success ? '0x1' : '0x0', type: '0x2' };
+        receipts.push(receipt); hashes.push(entry.hash); blockLogs.push(...logs); sealTxs.push(entry.tx); sealReceipts.push({ status: r.success ? 1 : 0, cumulativeBlockGasUsed: cumulative, bitvector: bloom.bitvector, logs: r.logs });
       }
       header.gasUsed = cumulative;
-      // real header hash from a real header (so explorers / libs see a well-formed 32-byte hash)
-      header.hash = bytesToHex(execBlock(header).hash());
+      Object.assign(header, await sealHeader({ number: header.number, parentHash: header.parentHash, timestamp: header.timestamp, gasUsed: cumulative, txs: sealTxs, receipts: sealReceipts }));
       for (const r of receipts) { r.blockHash = header.hash; r.blockNumber = hex(header.number); for (const l of r.logs) l.blockHash = header.hash; const t = txs.get(r.transactionHash); t.receipt = r; t.minedAt = Date.now(); t.rpc = { ...t.rpc, blockHash: header.hash, blockNumber: hex(header.number), transactionIndex: r.transactionIndex }; }
       pushBlock({ ...header, logs: blockLogs }, hashes, receipts);
       schedulePersist();
@@ -301,9 +447,9 @@ export async function createTerrarium(opts = {}) {
     const block = blockTag === 'pending' ? pendingBlock() : execBlock(latest());
     return withRollback(async () => {
       await applyOverrides(overrides);
-      const r = await vm.evm.runCall({ caller: createAddressFromString(p.from ?? accounts[0].address), to: p.to ? createAddressFromString(p.to) : undefined, data: hexToBytes(p.data ?? p.input ?? '0x'), value: p.value ? hexToBigInt(p.value) : 0n, gasLimit: p.gas ? hexToBigInt(p.gas) : gasLimit, block, skipBalance: true });
-      if (r.execResult.exceptionError) throw revertError(r.execResult);
-      return bytesToHex(r.execResult.returnValue);
+      const r = await exec({ msg: { from: p.from ?? accounts[0].address, to: p.to ?? null, data: p.data ?? p.input ?? '0x', value: p.value ? hexToBigInt(p.value) : 0n, gasLimit: p.gas ? hexToBigInt(p.gas) : gasLimit }, block });
+      if (!r.success) throw revertError(r);
+      return bytesToHex(r.returnValue);
     });
   }
 
@@ -313,16 +459,16 @@ export async function createTerrarium(opts = {}) {
     const from = getAddress(p.from ?? accounts[0].address);
     const acct = (await vm.stateManager.getAccount(createAddressFromString(from))) ?? new Account();
     const tx = impersonatedTx({ chainId: BigInt(chainId), nonce: acct.nonce, maxFeePerGas: baseFee * 2n, maxPriorityFeePerGas: 1n, gasLimit, to: p.to ?? undefined, value: p.value ? hexToBigInt(p.value) : 0n, data: p.data ?? p.input ?? '0x' }, from);
-    return withRollback(() => runTx(vm, { tx, block: pendingBlock(), skipNonce: true, skipBalance: true, skipHardForkValidation: true, skipBlockGasLimitValidation: true }));
+    return withRollback(() => exec({ tx, block: pendingBlock(), flags: { skipNonce: true, skipBalance: true } }));
   }
   /** geth/anvil-style estimation: one full run, an optimistic 64/63 probe, then binary search if needed. */
   async function estimateGas(p) {
     const cap = p.gas ? hexToBigInt(p.gas) : gasLimit;
     const first = await simulateTx(p, cap);
-    if (first.execResult.exceptionError) throw revertError(first.execResult);
-    const ok = async (g) => { try { const r = await simulateTx(p, g); return !r.execResult.exceptionError; } catch { return false; } };
-    let lo = first.totalGasSpent - 1n, hi = cap;
-    const optimistic = ((first.totalGasSpent + first.gasRefund) * 64n) / 63n + 1n;   // usually exact
+    if (!first.success) throw revertError(first);
+    const ok = async (g) => { try { const r = await simulateTx(p, g); return r.success; } catch { return false; } };
+    let lo = first.gasUsed - 1n, hi = cap;
+    const optimistic = ((first.gasUsed + first.gasRefund) * 64n) / 63n + 1n;   // usually exact
     if (optimistic < hi && (await ok(optimistic))) hi = optimistic;
     while (lo + 1n < hi) {                                                             // shrink to the minimum that succeeds
       if (hi - lo <= hi / 64n) break;                                                  // 1.5 % tolerance like geth
@@ -334,7 +480,10 @@ export async function createTerrarium(opts = {}) {
 
   // ---- RPC formatting ----------------------------------------------------------------------------
   function rpcBlock(b, full) {
-    return { number: hex(b.number), hash: b.hash, parentHash: b.parentHash, nonce: '0x0000000000000000', sha3Uncles: ZERO32, logsBloom: '0x' + '00'.repeat(256), transactionsRoot: ZERO32, stateRoot: ZERO32, receiptsRoot: ZERO32, miner: '0x0000000000000000000000000000000000000000', difficulty: '0x0', totalDifficulty: '0x0', extraData: '0x', size: '0x400', gasLimit: hex(b.gasLimit), gasUsed: hex(b.gasUsed), timestamp: hex(b.timestamp), baseFeePerGas: hex(b.baseFeePerGas), mixHash: ZERO32, uncles: [], withdrawals: [], withdrawalsRoot: EMPTY_ROOT, blobGasUsed: '0x0', excessBlobGas: '0x0', parentBeaconBlockRoot: ZERO32, transactions: full ? b.transactions.map((h) => txs.get(h).rpc) : b.transactions };
+    const transactions = full ? b.transactions.map((h) => txs.get(h).rpc) : b.transactions;
+    const h = b.header;   // sealed header (blocks restored from a pre-0.2 dump have none: zero roots, as before)
+    if (!h) return { number: hex(b.number), hash: b.hash, parentHash: b.parentHash, nonce: '0x0000000000000000', sha3Uncles: ZERO32, logsBloom: '0x' + '00'.repeat(256), transactionsRoot: ZERO32, stateRoot: ZERO32, receiptsRoot: ZERO32, miner: '0x0000000000000000000000000000000000000000', difficulty: '0x0', totalDifficulty: '0x0', extraData: '0x', size: '0x400', gasLimit: hex(b.gasLimit), gasUsed: hex(b.gasUsed), timestamp: hex(b.timestamp), baseFeePerGas: hex(b.baseFeePerGas), mixHash: ZERO32, uncles: [], withdrawals: [], withdrawalsRoot: EMPTY_ROOT, blobGasUsed: '0x0', excessBlobGas: '0x0', parentBeaconBlockRoot: ZERO32, transactions };
+    return { number: h.number, hash: b.hash, parentHash: h.parentHash, nonce: h.nonce, sha3Uncles: h.uncleHash, logsBloom: h.logsBloom, transactionsRoot: h.transactionsTrie, stateRoot: h.stateRoot, receiptsRoot: h.receiptTrie, miner: h.coinbase, difficulty: h.difficulty, totalDifficulty: '0x0', extraData: h.extraData, size: b.size ?? '0x0', gasLimit: h.gasLimit, gasUsed: h.gasUsed, timestamp: h.timestamp, baseFeePerGas: h.baseFeePerGas, mixHash: h.mixHash, uncles: [], withdrawals: [], withdrawalsRoot: h.withdrawalsRoot ?? EMPTY_ROOT, blobGasUsed: h.blobGasUsed ?? '0x0', excessBlobGas: h.excessBlobGas ?? '0x0', parentBeaconBlockRoot: h.parentBeaconBlockRoot ?? ZERO32, transactions };
   }
   function blockByTag(tag) {
     if (tag === undefined || tag === 'latest' || tag === 'pending' || tag === 'safe' || tag === 'finalized') return latest();
@@ -496,13 +645,8 @@ export async function createTerrarium(opts = {}) {
   // ---- fabricating state --------------------------------------------------------------------------
   /** Run a call while recording which storage slots `target` SLOADs (Foundry's stdstore/vm.record trick). */
   async function recordReads(target, data) {
-    const reads = new Set();
-    const listener = (step) => { if (step.opcode.name === 'SLOAD' && step.address.toString() === target.toLowerCase()) reads.add(numberToHex(step.stack[step.stack.length - 1], { size: 32 })); };
-    vm.evm.events.on('step', listener);
-    try {
-      const result = await withRollback(async () => { const r = await vm.evm.runCall({ caller: createAddressFromString(accounts[0].address), to: createAddressFromString(target), data: hexToBytes(data), gasLimit, block: execBlock(latest()) }); return r.execResult.exceptionError ? null : bytesToHex(r.execResult.returnValue); });
-      return { reads: [...reads], result };
-    } finally { vm.evm.events.removeListener('step', listener); }
+    const r = await withRollback(() => exec({ msg: { from: accounts[0].address, to: target, data, value: 0n, gasLimit }, block: execBlock(latest()), flags: { traceSloads: true } }));
+    return { reads: [...new Set(r.sloads.filter((x) => x.address === target.toLowerCase()).map((x) => x.slot))], result: r.success ? bytesToHex(r.returnValue) : null };
   }
   /** Find the slot that a view function reads *and* whose value flows to the return value. Works for
    *  Solidity & Vyper mappings, proxies (storage context = proxy), ERC-7201 namespaced storage… */
@@ -514,10 +658,10 @@ export async function createTerrarium(opts = {}) {
     for (const slot of reads) {
       const hit = await withRollback(async () => {
         await vm.stateManager.putStorage(createAddressFromString(target), hexToBytes(slot), hexToBytes(pad32(sentinel)));
-        const r = await vm.evm.runCall({ caller: createAddressFromString(accounts[0].address), to: createAddressFromString(target), data: hexToBytes(data), gasLimit, block: execBlock(latest()) });
+        const r = await exec({ msg: { from: accounts[0].address, to: target, data, value: 0n, gasLimit }, block: execBlock(latest()) });
         // a probe that lands on e.g. a proxy's implementation slot breaks the call (empty return) — not a hit
-        if (globalThis.process?.env?.TERRARIUM_DEBUG) console.log('[probe]', slot, r.execResult.exceptionError?.error, bytesToHex(r.execResult.returnValue));
-        return !r.execResult.exceptionError && r.execResult.returnValue.length >= 32 && hexToBigInt(bytesToHex(r.execResult.returnValue)) === sentinel;
+        if (globalThis.process?.env?.TERRARIUM_DEBUG) console.log('[probe]', slot, r.error, bytesToHex(r.returnValue));
+        return r.success && r.returnValue.length >= 32 && hexToBigInt(bytesToHex(r.returnValue)) === sentinel;
       });
       if (hit) return { slot, current: hexToBigInt(result) };
     }
@@ -624,7 +768,7 @@ export async function createTerrarium(opts = {}) {
 
   // ---- public sim API (what a test / storybook / dev toolbar would use) ------------------------
   const sim = {
-    provider: eip1193, node: nodeProvider, vm, accounts, chainId, seed, random, wallet: walletKnobs,
+    provider: eip1193, node: nodeProvider, vm, accounts, chainId, seed, random, wallet: walletKnobs, engine, stats,
     /** Register a scenario-level RPC method (e.g. terrarium_bot) so a dev bar can drive it through the provider alone. */
     addMethod(name, fn) { extensions.set(name, fn); },
     now: () => now(),
@@ -639,6 +783,7 @@ export async function createTerrarium(opts = {}) {
     get blockNumber() { return latest().number; },
     /** Register a JS mock at an address. `handlers[fnName](...args)` returns the decoded result (or throws to revert). */
     async mockContract(address, abi, handlers) {
+      if (engine === 'revm') throw new Error('mockContract is not supported by the revm engine yet — use engine: "js" for scenarios with JS-mocked contracts');
       const lower = address.toLowerCase();
       mocks.set(lower, { abi, handlers });
       // Solidity's EXTCODESIZE check for calls with no return data needs *some* code at the address

@@ -21,12 +21,13 @@ let networkAttempts = 0;
 globalThis.fetch = async (url) => { networkAttempts++; throw new Error(`offline test tried to reach the network: ${url}`); };
 
 const t0 = Date.now();
-const sim = await createTerrarium({ chainId: 1, fork: { url: 'http://127.0.0.1:9/unplugged', blockNumber: fixture.blockNumber }, restore: fixture.dump, seed: 1 });
+const engine = process.env.TERRARIUM_ENGINE ?? 'js';
+const sim = await createTerrarium({ chainId: 1, engine, fork: { url: 'http://127.0.0.1:9/unplugged', blockNumber: fixture.blockNumber }, restore: fixture.dump, seed: 1 });
 const chain = defineChain({ id: 1, name: 'mainnet-fork', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: { default: { http: [] } } });
 const pub = createPublicClient({ chain, transport: custom(sim.provider), pollingInterval: 20 });
 const wallet = createWalletClient({ chain, transport: custom(sim.provider), account: user });
 const read = (address, abi, functionName, args = []) => pub.readContract({ address, abi, functionName, args });
-const out = { restoredMs: Date.now() - t0, forkBlock: fixture.blockNumber, headAfterRestore: String(sim.blockNumber) };
+const out = { engine, restoredMs: Date.now() - t0, forkBlock: fixture.blockNumber, headAfterRestore: String(sim.blockNumber) };
 
 // 1. the recorded state is there: WETH from the recorded swap, USDC left over
 out.wethFromRecordedSwap = (await read(WETH, erc20, 'balanceOf', [user])).toString();

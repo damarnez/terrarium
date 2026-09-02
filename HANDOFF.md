@@ -117,3 +117,17 @@ fork replay. Verified: `npm run e2e`, `npm run test:uniswap`, `npm run test:fork
   builds, e2e, test:uniswap, test:fork all PASS.
 - Next (from the second analysis): HTTP mocking + in-Worker indexer (subgraph), mock contracts that can emit/write,
   fork warm-up + offline miss report + oracle override, Aave example, tracing in the dev bar, fixture CLI.
+
+## 9. Fourth pass (2 Sep 2026, night) — verifiable blocks + WebAssembly engine
+- **Verifiable headers.** `MerkleStateManager` by default (real `stateRoot`), real transactions trie, receipts trie
+  and bloom in every header, impersonated txs with Anvil-style fake signatures; `test/uniswap-v2.mjs` recomputes hash and
+  all roots from RPC output for every block on Terrarium and Anvil (16/16 each).
+- **revm in WebAssembly.** `packages/terrarium-evm` (Rust, revm 43, no C deps, wasm-bindgen `--target web`, 1.5 MB)
+  executes one tx per call against a JS `Host` (account/storage/blockHash) and returns result + state diff + SLOAD
+  trace. `engine.js` gained a checkpoint-aware sync state mirror and a miss-and-retry loop; both engines share one
+  result shape and pass the differential test byte for byte. Scenario default is `engine: 'revm'`.
+- **The real bottleneck was never the EVM.** Profiling showed 83 % idle: viem wrapped our revert errors as "unknown" and
+  retried 3× (1 s per reverted estimate). Engine and bridge errors now extend viem's BaseError. 14-tx scenario:
+  js 2.5 s → 382 ms, revm 115 ms (28 ms inside wasm), Anvil 59 ms.
+- Still JS-only: `mockContract`. Next: mocks that can emit/write (then port to revm via a host callback), HTTP mocking +
+  indexer, fork warm-up/miss report, Aave example, tracing.

@@ -1,0 +1,20 @@
+{
+  "name": "terrarium-evm",
+  "version": "0.1.0",
+  "description": "revm compiled to WebAssembly: the fast execution backend for Terrarium",
+  "type": "module",
+  "license": "MIT",
+  "main": "pkg/terrarium_evm.js",
+  "exports": {
+    ".": "./pkg/terrarium_evm.js",
+    "./wasm": "./pkg/terrarium_evm_bg.wasm"
+  },
+  "files": [
+    "pkg",
+    "src",
+    "Cargo.toml"
+  ],
+  "scripts": {
+    "build": "cargo build --release --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir pkg target/wasm32-unknown-unknown/release/terrarium_evm.wasm"
+  }
+}

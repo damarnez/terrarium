@@ -25,7 +25,7 @@ export function mountDevBar(provider: Provider) {
   const el = (html: string) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild as HTMLElement; };
   const btn = (label: string, testid: string, title: string, onClick: () => Promise<unknown> | void) => { const b = el(`<button data-testid="${testid}" title="${title}">${label}</button>`); b.onclick = () => Promise.resolve(onClick()).catch((e) => console.warn('[terrarium]', e)); return b; };
 
-  const info = el(`<span class="muted">simulated chain <span data-f="chain">…</span> · block <b data-testid="block" data-f="block">…</b> · state persists in IndexedDB</span>`);
+  const info = el(`<span class="muted">simulated chain <span data-f="chain">…</span> · block <b data-testid="block" data-f="block">…</b> · <span data-f="engine">…</span> · state persists in IndexedDB</span>`);
   let mining: 'auto' | 'interval' = 'auto', snap: string | null = null;
   const bMining = btn('Blocks: instant', 'mining', 'Auto: a block per transaction. Interval: a block every 3s, so you can watch pending states', async () => {
     mining = mining === 'auto' ? 'interval' : 'auto';
@@ -54,6 +54,7 @@ export function mountDevBar(provider: Provider) {
     const s = await rpc('terrarium_status').catch(() => null); if (!s) return;
     info.querySelector('[data-f=chain]')!.textContent = String(s.chainId);
     info.querySelector('[data-f=block]')!.textContent = String(parseInt(s.block, 16));
+    info.querySelector('[data-f=engine]')!.textContent = s.engine === 'revm' ? 'revm/wasm' : 'ethereumjs';
     bActors.hidden = !s.hasActors; bActors.textContent = `${s.actorsLabel} ${s.actors ? 'on' : 'off'}`; bActors.classList.toggle('on', s.actors);
     bReject.textContent = s.wallet.rejectNext > 0 ? `Reject next tx · armed (${s.wallet.rejectNext})` : 'Reject next tx'; bReject.classList.toggle('armed', s.wallet.rejectNext > 0);
     bLatency.textContent = s.wallet.latencyMs ? `Wallet: ${s.wallet.latencyMs / 1000}s delay` : 'Wallet: instant'; bLatency.classList.toggle('on', !!s.wallet.latencyMs);

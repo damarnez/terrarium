@@ -1,14 +1,17 @@
 // bridge.ts — postMessage RPC between the page (an EIP-1193 facade) and the Worker where the chain actually runs.
 // Only JSON-RPC shaped data crosses: method names, hex strings, plain objects. Errors keep their `code` and `data`,
 // so viem decodes reverts (code 3 + data) and rejections (4001) exactly as it would from a real wallet.
+import { BaseError } from 'viem';
+
 export type RpcArgs = { method: string; params?: unknown[] };
 type Req = { id: number; method: string; params: unknown[] };
 type Res = { id: number; result?: unknown; error?: { code: number; message: string; data?: unknown } };
 type Evt = { event: string; payload: unknown };
 
-export class ProviderRpcError extends Error {
+/** Extends viem's BaseError so viem treats it like an error from its own transports (no "unknown error" retries). */
+export class ProviderRpcError extends BaseError {
   code: number; data: unknown;
-  constructor(code: number, message: string, data?: unknown) { super(message); this.code = code; this.data = data; this.name = 'ProviderRpcError'; }
+  constructor(code: number, message: string, data?: unknown) { super(message, { name: 'ProviderRpcError', details: message }); this.code = code; this.data = data; }
 }
 
 /** Worker side: answer requests with the sim's provider and forward its events to the page. */

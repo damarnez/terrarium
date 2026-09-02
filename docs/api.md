@@ -6,6 +6,10 @@
 |---|---|---|
 | `chainId` | `31337` | chain id reported by `eth_chainId` and used for signing |
 | `hardfork` | `cancun` | EVM rules (`@ethereumjs/common` Hardfork name) |
+| `engine` | `'js'` (engine) / `'revm'` (scenarios) | `'revm'`: revm compiled to WebAssembly (package `terrarium-evm`). `'js'`: `@ethereumjs/vm`. Same results, see `test:uniswap` |
+| `revm` | auto | `{ module?, wasm? }`: a preloaded `terrarium-evm` module and/or the wasm bytes; by default the module is imported and the wasm resolved next to it |
+| `state` | `'merkle'` | `'merkle'`: Merkle Patricia trie state, real `stateRoot` in every header. `'simple'`: flat maps, slightly faster, placeholder root |
+| `stateRoot` | zero | the placeholder `stateRoot` reported when no trie exists (`state: 'simple'` and fork mode) |
 | `keys` | the 10 Anvil keys | accounts the wallet controls, each funded with 10,000 ETH |
 | `impersonateAll` | `false` | allow `eth_sendTransaction` from any address without a key |
 | `baseFeePerGas` | 1 gwei | fixed base fee |
@@ -28,6 +32,7 @@
 | `accounts` | viem local accounts for `keys` |
 | `vm` | the `@ethereumjs/vm` instance (escape hatch; never call `runTx` outside the lock) |
 | `chainId`, `seed`, `random()`, `now()`, `blockNumber` | as named; `now()` is the chain clock in seconds (bigint) |
+| `engine`, `stats` | the active engine; for revm `{ runs, rounds, wasmMs }` (rounds > runs means state was fetched and re-run) |
 | `wallet` | the live wallet knobs object |
 | `mine(n)`, `snapshot()`, `revert(id)` | mining and snapshots (snapshots roll back blocks, receipts, journal, filters, dump) |
 | `deal(token, holder, amount, { adjustTotalSupply })` | set any ERC20 balance (slot found by watching SLOADs; proxies work) |
@@ -44,6 +49,12 @@
 ### `indexedDBStorage(dbName = 'terrarium', store = 'kv')`
 Async `getItem/setItem/removeItem/clear` backed by IndexedDB. Works in Workers. Use as `persist.storage`.
 
+### Verifiable blocks
+Every header is sealed for real: `transactionsRoot` is the trie of the block's RLP-encoded txs, `receiptsRoot` the trie of
+EIP-2718 receipts, `logsBloom` the OR of the receipts' blooms, `stateRoot` the Merkle trie root (merkle mode), and `hash` is
+keccak of that header. Impersonated txs carry an Anvil-style fake signature (r = sender), so they hash and RLP like any
+other tx. `test/uniswap-v2.mjs` recomputes all four from the RPC output for every block, on the Terrarium and on Anvil.
+
 ## RPC surface (`provider.request({ method, params })`)
 - **Node**: `eth_chainId net_version web3_clientVersion eth_syncing eth_blockNumber eth_getBlockByNumber eth_getBlockByHash eth_getBalance eth_getTransactionCount eth_getCode eth_getStorageAt eth_gasPrice eth_maxPriorityFeePerGas eth_feeHistory eth_call eth_estimateGas eth_sendRawTransaction eth_getTransactionReceipt eth_getTransactionByHash eth_getLogs eth_newFilter eth_newBlockFilter eth_newPendingTransactionFilter eth_getFilterChanges eth_getFilterLogs eth_uninstallFilter eth_subscribe eth_unsubscribe`. `eth_call` accepts a geth state-override set as the third param; the `pending` tag simulates on the next block.
 - **Wallet**: `eth_accounts eth_requestAccounts eth_sendTransaction personal_sign eth_signTypedData_v4 wallet_switchEthereumChain wallet_addEthereumChain wallet_getPermissions wallet_requestPermissions wallet_revokePermissions`. Wallet methods pass through the latency / rejection gate.
@@ -55,7 +66,7 @@ Async `getItem/setItem/removeItem/clear` backed by IndexedDB. Works in Workers. 
 ## `defineScenario(config)`  (`terrarium/scenario`)
 | field | meaning |
 |---|---|
-| `chainId`, `seed`, `hardfork`, `gasEstimation`, `wallet` | passed to `createTerrarium` |
+| `chainId`, `seed`, `hardfork`, `engine` (default `'revm'`), `state`, `gasEstimation`, `wallet` | passed to `createTerrarium` |
 | `persist` | IndexedDB key (default `'default'`), or `false` for in-memory |
 | `setup(ctx)` | runs on every boot. `ctx.fresh` is true only when the chain has no blocks yet |
 | `actors` | `{ name?, every?: ms, on?: filter \| (ctx) => filter, run(ctx, log?) }[]`; toggled together, off by default, persisted |

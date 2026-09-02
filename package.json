@@ -13,8 +13,9 @@
     "e2e": "npm run build:contracts && VITE_TERRARIUM=off vite build && npm run build:terrarium && node e2e/frogpond.e2e.mjs",
     "e2e:install": "npx playwright install chromium",
     "test:uniswap": "node test/uniswap-v2.mjs",
-    "test:fork": "node test/fork-offline.mjs",
-    "test:fork:record": "node test/fork-record.mjs"
+    "test:fork": "node test/fork-offline.mjs && TERRARIUM_ENGINE=revm node test/fork-offline.mjs",
+    "test:fork:record": "node test/fork-record.mjs",
+    "build:wasm": "npm run build -w terrarium-evm"
   },
   "keywords": [],
   "author": "",

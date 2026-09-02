@@ -3,8 +3,12 @@
 Read HANDOFF.md first for the full story. This file is the short operating manual.
 
 ## What this is
-- **Terrarium** (`packages/terrarium/src/engine.js`): a self-contained EVM chain (real bytecode via `@ethereumjs/vm`, a JS interpreter,
-  NOT WASM) exposed as an EIP-1193 provider. Blocks, receipts, logs, filters, Anvil/Hardhat cheatcodes, JS-mocked
+- **Terrarium** (`packages/terrarium/src/engine.js`): a self-contained EVM chain exposed as an EIP-1193 provider. Two
+  execution engines behind one result shape: `engine: 'revm'` (revm 43 compiled to WebAssembly, `packages/terrarium-evm`,
+  Rust + wasm-bindgen; the scenario default) and `engine: 'js'` (`@ethereumjs/vm`, the reference). State, checkpoints,
+  persistence and fork recording are JavaScript in both; revm reads through a sync, checkpoint-aware state mirror
+  (miss => zero/non-existent locally, fetch + re-run in fork mode). Blocks are sealed with real tx/receipt tries,
+  bloom and (merkle mode) stateRoot. Blocks, receipts, logs, filters, Anvil/Hardhat cheatcodes, JS-mocked
   contracts, event-reactive actors, wallet-realism knobs (rejection / latency / receipt lag), a read-only `node`
   provider, injectable clock + seeded PRNG, persistence (IndexedDB / any getItem-setItem store), journal replay,
   snapshots that roll back everything, fork mode with offline fixtures, live block following.
@@ -45,8 +49,11 @@ npm run test:fork            # offline replay of the recorded mainnet fork fixtu
 4. **All state-touching work is serialized** through the single `exclusive()` queue. Never call `mine()`, `runTx`,
    `checkpoint/revert` from outside it. Wallet latency/rejection run in the gate *before* the lock on purpose.
 5. Contract changes: edit `contracts/*.sol`, run `npm run build:contracts`, never hand-edit `src/generated/`.
-6. Fidelity claims must be backed by `npm run test:uniswap` (differential vs Anvil). If you touch tx execution, gas,
-   blocks, receipts, logs or revert data, run it.
+6. Fidelity claims must be backed by `npm run test:uniswap` (differential vs Anvil, BOTH engines, verifiable blocks, RPC
+   parity). If you touch tx execution, gas, blocks, receipts, logs, revert data or the state mirror, run it.
+7. RPC errors thrown to viem must extend viem's `BaseError` (`RpcError` in the engine, `ProviderRpcError` in the bridge):
+   a foreign error with an unknown code is wrapped as "unknown" and retried 3× with backoff (1 s per reverted estimate).
+8. Rust changes: `npm run build:wasm` regenerates `packages/terrarium-evm/pkg` (committed, so JS-only users need no Rust).
 
 ## Known gotchas (already handled in packages/terrarium/src/engine.js — do not "clean up" these)
 - `@ethereumjs/statemanager` 10.1.3 `RPCStateManager.commit()` only commits the *account* cache → subclass commits all.

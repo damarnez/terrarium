@@ -10,7 +10,7 @@ export async function runScenario(config: ScenarioConfig) {
   const chainId = config.chainId ?? 31337;
   const key = config.persist === false ? null : (config.persist ?? 'default');
   const storage = key ? indexedDBStorage('terrarium') : null;
-  const sim: any = await createTerrarium({ chainId, seed: config.seed, hardfork: config.hardfork, gasEstimation: config.gasEstimation, wallet: config.wallet, persist: storage ? { storage, key } : undefined });
+  const sim: any = await createTerrarium({ chainId, seed: config.seed, hardfork: config.hardfork, engine: config.engine ?? 'revm', state: config.state, gasEstimation: config.gasEstimation, wallet: config.wallet, persist: storage ? { storage, key } : undefined });
   const chain = defineChain({ id: chainId, name: 'Terrarium', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: { default: { http: [] } } });
   const pub = createPublicClient({ chain, transport: custom(sim.provider), pollingInterval: 20 });
   const rpc = (method: string, params: unknown[] = []) => sim.provider.request({ method, params });
@@ -49,7 +49,7 @@ export async function runScenario(config: ScenarioConfig) {
 
   // ---- generic controls, reachable through the provider like any RPC method -----------------------------------
   sim.addMethod('terrarium_actors', async (on?: boolean) => { await actors.toggle(on ?? !actors.enabled); return actors.enabled; });
-  sim.addMethod('terrarium_status', async () => ({ chainId, block: toHex(sim.blockNumber), accounts: ctx.accounts, actors: actors.enabled, actorsLabel: config.actorsLabel ?? 'Actors', hasActors: (config.actors?.length ?? 0) > 0, wallet: { ...sim.wallet }, ...(await config.status?.(ctx)) }));
+  sim.addMethod('terrarium_status', async () => ({ chainId, engine: sim.engine, block: toHex(sim.blockNumber), accounts: ctx.accounts, actors: actors.enabled, actorsLabel: config.actorsLabel ?? 'Actors', hasActors: (config.actors?.length ?? 0) > 0, wallet: { ...sim.wallet }, ...(await config.status?.(ctx)) }));
   sim.addMethod('terrarium_reset', async () => { await actors.toggle(false); sim.stop(); await storage?.clear(); return true; });
   for (const [name, fn] of Object.entries(config.methods ?? {})) sim.addMethod(name, (...args: any[]) => fn(ctx, ...args));
 

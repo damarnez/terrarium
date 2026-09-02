@@ -11,6 +11,13 @@ import { readFileSync } from 'node:fs';
 import { createPublicClient, createWalletClient, custom, http, defineChain, parseAbi, parseEther, decodeErrorResult, encodeFunctionData, encodeDeployData, keccak256, maxUint256, numberToHex, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { createTerrarium, TEST_KEYS } from 'terrarium/engine';
+import { createBlockHeaderFromRPC, genTransactionsTrieRoot } from '@ethereumjs/block';
+import { createTxFromRPC } from '@ethereumjs/tx';
+import { encodeReceipt, Bloom } from '@ethereumjs/vm';
+import { MerklePatriciaTrie } from '@ethereumjs/mpt';
+import { RLP } from '@ethereumjs/rlp';
+import { Common, Hardfork, Mainnet } from '@ethereumjs/common';
+import { bytesToHex, hexToBytes } from '@ethereumjs/util';
 
 const fixture = JSON.parse(readFileSync(new URL(import.meta.resolve('terrarium/fixtures/uniswap-v2-mainnet.json')), 'utf8'));
 const PEPE = JSON.parse(readFileSync(new URL('../contracts/out/PEPE.json', import.meta.url), 'utf8'));
@@ -49,12 +56,16 @@ async function runScenario(raw, transport) {
   const read = (address, abi, functionName, args = []) => pub.readContract({ address, abi, functionName, args });
 
   /** one tx: pin the block timestamp (so both chains agree), estimate (informational), send, record the receipt */
+  const timing = process.env.TERRARIUM_TIMING ? [] : null;
   const send = async (label, w, req) => {
-    ts += 12n; await raw('evm_setNextBlockTimestamp', [Number(ts)]);
+    const t = [Date.now()];
+    ts += 12n; await raw('evm_setNextBlockTimestamp', [Number(ts)]); t.push(Date.now());
     let hash, est;
-    if (req.deploy) { est = await pub.estimateGas({ account: w.account, data: encodeDeployData(req.deploy) }).catch(() => 'reverts'); hash = await w.deployContract({ ...req.deploy, ...FEES }); }
-    else { est = await pub.estimateContractGas({ ...req, account: w.account }).catch(() => 'reverts'); hash = await w.writeContract({ ...req, ...FEES }); }
-    const r = await pub.waitForTransactionReceipt({ hash });
+    if (req.deploy) { est = await pub.estimateGas({ account: w.account, data: encodeDeployData(req.deploy) }).catch(() => 'reverts'); t.push(Date.now()); hash = await w.deployContract({ ...req.deploy, ...FEES }); }
+    else { est = await pub.estimateContractGas({ ...req, account: w.account }).catch(() => 'reverts'); t.push(Date.now()); hash = await w.writeContract({ ...req, ...FEES }); }
+    t.push(Date.now());
+    const r = await pub.waitForTransactionReceipt({ hash }); t.push(Date.now());
+    if (timing) timing.push(`  ${label.padEnd(48)} setTs ${String(t[1] - t[0]).padStart(4)}  estimate ${String(t[2] - t[1]).padStart(5)}  send ${String(t[3] - t[2]).padStart(5)}  receipt ${String(t[4] - t[3]).padStart(5)}`);
     out.steps.push({ label, hash, status: r.status, gasUsed: r.gasUsed, contractAddress: r.contractAddress ?? null, logs: r.logs.map((l) => ({ address: l.address, topics: l.topics, data: l.data })) });
     estimates[label] = est;
     return r;
@@ -121,6 +132,7 @@ async function runScenario(raw, transport) {
   // ...and when the failing tx is actually sent (a wallet that skips simulation): a mined, reverted receipt
   await send('no approval, sent anyway (reverts on-chain)', wallets[1], sellReq(noApproval));
   await send('slippage, sent anyway (reverts on-chain)', wallets[0], { address: ROUTER, abi: routerAbi, functionName: 'swapExactETHForTokens', args: [parseEther('1000000000'), [WETH, pepe], user, deadline()], value: parseEther('1') });
+  if (timing) console.log(timing.join('\n'));
   return { out, estimates };
 }
 
@@ -167,59 +179,96 @@ async function rpcParity(rawA, rawB, ctx) {
   return rows;
 }
 
+// ---- verifiable blocks: recompute every header hash, transactions root, receipts root and bloom from RPC output ----
+// A node's word is not taken for any of them. The same verifier runs against Anvil, which proves the verifier.
+async function verifyBlocks(raw) {
+  const common = new Common({ chain: { ...Mainnet, chainId: 31337, name: 'verify' }, hardfork: Hardfork.Cancun });
+  const latest = Number(await raw('eth_blockNumber', []));
+  const out = { blocks: latest + 1, headerHash: 0, txRoot: 0, receiptsRoot: 0, bloom: 0, stateRootNonZero: 0 };
+  for (let n = 0; n <= latest; n++) {
+    const b = await raw('eth_getBlockByNumber', [numberToHex(n), true]);
+    const header = createBlockHeaderFromRPC(b, { common, skipConsensusFormatValidation: true });
+    if (bytesToHex(header.hash()) === b.hash) out.headerHash++;
+    const txs = await Promise.all(b.transactions.map((t) => createTxFromRPC(t, { common })));
+    if (bytesToHex(await genTransactionsTrieRoot(txs)) === b.transactionsRoot) out.txRoot++;
+    const receipts = await Promise.all(b.transactions.map((t) => raw('eth_getTransactionReceipt', [t.hash])));
+    const trie = new MerklePatriciaTrie(); const bloom = new Bloom(undefined, common);
+    for (const [i, r] of receipts.entries()) {
+      await trie.put(RLP.encode(i), encodeReceipt({ status: Number(r.status), cumulativeBlockGasUsed: BigInt(r.cumulativeGasUsed), bitvector: hexToBytes(r.logsBloom), logs: r.logs.map((l) => [hexToBytes(l.address), l.topics.map(hexToBytes), hexToBytes(l.data)]) }, Number(r.type)));
+      bloom.or(new Bloom(hexToBytes(r.logsBloom), common));
+    }
+    if (bytesToHex(trie.root()) === b.receiptsRoot) out.receiptsRoot++;
+    if (bytesToHex(bloom.bitvector) === b.logsBloom) out.bloom++;
+    if (!/^0x0+$/.test(b.stateRoot)) out.stateRootNonZero++;
+  }
+  out.allVerified = [out.headerHash, out.txRoot, out.receiptsRoot, out.bloom].every((c) => c === out.blocks);
+  return out;
+}
+
 // ---- run on both chains ----------------------------------------------------------------------------------------
-const ANVIL_PORT = 8546, anvilUrl = `http://127.0.0.1:${ANVIL_PORT}`;
-const anvil = spawn('anvil', ['--port', String(ANVIL_PORT), '--hardfork', 'cancun', '--silent'], { stdio: 'ignore' });
-const anvilRaw = async (method, params) => {
-  const res = await (await fetch(anvilUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json();
-  if (res.error) throw Object.assign(new Error(res.error.message), { code: res.error.code, data: res.error.data });
-  return res.result;
-};
-let exitCode = 1;
+/** a fresh Anvil per engine run: same txs, same blocks, nothing left over from a previous round */
+async function startAnvil(port) {
+  const url = `http://127.0.0.1:${port}`;
+  const proc = spawn('anvil', ['--port', String(port), '--hardfork', 'cancun', '--silent'], { stdio: 'ignore' });
+  const raw = async (method, params) => {
+    const res = await (await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json();
+    if (res.error) throw Object.assign(new Error(res.error.message), { code: res.error.code, data: res.error.data });
+    return res.result;
+  };
+  for (let i = 0; ; i++) { try { await raw('eth_chainId', []); break; } catch { if (i > 100) throw new Error('anvil did not start'); await new Promise((r) => setTimeout(r, 100)); } }
+  return { url, raw, kill: () => proc.kill() };
+}
+
+let exitCode = 1, allOk = true;
+const user0 = privateKeyToAccount(TEST_KEYS[0]).address;
 try {
-  for (let i = 0; ; i++) { try { await anvilRaw('eth_chainId', []); break; } catch { if (i > 100) throw new Error('anvil did not start'); await new Promise((r) => setTimeout(r, 100)); } }
+  for (const [i, engine] of (process.env.TERRARIUM_ENGINES ?? 'js,revm').split(',').entries()) {
+    const anvil = await startAnvil(8546 + i);
+    try {
+      const t1 = Date.now();
+      const reference = await runScenario(anvil.raw, http(anvil.url));
+      const anvilMs = Date.now() - t1;
+      const b = reference.out;
 
-  const t0 = Date.now();
-  const sim = await createTerrarium({ chainId: 31337 });
-  const terrarium = await runScenario((method, params) => sim.provider.request({ method, params }), custom(sim.provider));
-  const terrariumMs = Date.now() - t0;
-  const t1 = Date.now();
-  const reference = await runScenario(anvilRaw, http(anvilUrl));
-  const anvilMs = Date.now() - t1;
+      const t0 = Date.now();
+      const sim = await createTerrarium({ chainId: 31337, engine });
+      const bootMs = Date.now() - t0;
+      const terrarium = await runScenario((method, params) => sim.provider.request({ method, params }), custom(sim.provider));
+      const terrariumMs = Date.now() - t0 - bootMs;
+      const a = terrarium.out;
+      const stepDiffs = a.steps.map((st, k) => ({ label: st.label, status: st.status, gasUsed: st.gasUsed, identical: j(st) === j(b.steps[k]) }));
+      const callsIdentical = j(a.calls) === j(b.calls), revertsIdentical = j(a.reverts) === j(b.reverts);
+      const estimateRows = Object.keys(terrarium.estimates).map((k) => ({ label: k, terrarium: terrarium.estimates[k], anvil: reference.estimates[k], gasUsed: a.steps.find((st) => st.label === k)?.gasUsed }));
+      const raw = (m, p) => sim.provider.request({ method: m, params: p });
+      const parity = await rpcParity(raw, anvil.raw, { pair: a.calls.pair, user: user0, router: ROUTER, txHash: a.steps[5].hash, swapTopic: keccak256(toHex('Swap(address,uint256,uint256,uint256,uint256,address)')),
+        expiredCall: encodeFunctionData({ abi: routerAbi, functionName: 'swapExactETHForTokens', args: [0n, [WETH, a.calls.pairTokens[0] === WETH ? a.calls.pairTokens[1] : a.calls.pairTokens[0]], user0, 1n] }) });
+      const verified = { terrarium: await verifyBlocks(raw), anvil: await verifyBlocks(anvil.raw) };
 
-  // ---- compare ----
-  const a = terrarium.out, b = reference.out;
-  const user0 = privateKeyToAccount(TEST_KEYS[0]).address;
-  const parity = await rpcParity((m, p) => sim.provider.request({ method: m, params: p }), anvilRaw, { pair: a.calls.pair, user: user0, router: ROUTER, txHash: a.steps[5].hash,
-    swapTopic: keccak256(toHex('Swap(address,uint256,uint256,uint256,uint256,address)')),
-    expiredCall: encodeFunctionData({ abi: routerAbi, functionName: 'swapExactETHForTokens', args: [0n, [WETH, a.calls.pairTokens[0] === WETH ? a.calls.pairTokens[1] : a.calls.pairTokens[0]], user0, 1n] }) });
-  const stepDiffs = a.steps.map((s, i) => ({ label: s.label, status: s.status, gasUsed: s.gasUsed, identical: j(s) === j(b.steps[i]) }));
-  const callsIdentical = j(a.calls) === j(b.calls), revertsIdentical = j(a.reverts) === j(b.reverts);
-  const estimateRows = Object.keys(terrarium.estimates).map((k) => ({ label: k, terrarium: terrarium.estimates[k], anvil: reference.estimates[k], gasUsed: a.steps.find((s) => s.label === k)?.gasUsed }));
+      console.log(`\n================================================================ engine: ${engine} ================`);
+      console.log('== transactions (identical = same hash, status, gasUsed, contractAddress, logs on both chains) ==');
+      for (const st of stepDiffs) console.log(`${st.identical ? '  ok ' : ' DIFF'} ${st.status.padEnd(8)} gas ${String(st.gasUsed).padStart(7)}  ${st.label}`);
+      console.log('== eth_call results ==', callsIdentical ? 'identical' : 'DIFFERENT'); if (!callsIdentical) console.log(j(a.calls), '\nanvil says:', j(b.calls));
+      console.log('== revert payloads ==', revertsIdentical ? 'identical' : 'DIFFERENT'); for (const [k, v] of Object.entries(a.reverts)) console.log(`  ${k.padEnd(12)} -> ${v ? JSON.stringify(v.reason) : 'did not revert'}`); if (!revertsIdentical) console.log('anvil says:', j(b.reverts));
+      console.log('== gas estimates (informational; must be >= gasUsed) ==');
+      for (const r of estimateRows) console.log(`  terrarium ${String(r.terrarium).padStart(8)}  anvil ${String(r.anvil).padStart(8)}  used ${String(r.gasUsed).padStart(8)}  ${r.label}`);
+      console.log('== verifiable blocks (header hash, tx root, receipts root, bloom recomputed from RPC output) ==');
+      for (const [k, v] of Object.entries(verified)) console.log(`  ${k.padEnd(10)} blocks ${v.blocks}  headerHash ${v.headerHash}  txRoot ${v.txRoot}  receiptsRoot ${v.receiptsRoot}  bloom ${v.bloom}  stateRoot non-zero ${v.stateRootNonZero}  -> ${v.allVerified ? 'ok' : 'FAIL'}`);
+      console.log('== RPC parity ==');
+      for (const r of parity) console.log(`${r.ok ? '  ok ' : ' DIFF'} ${r.method} ${r.params}${r.ok ? '' : '\n        terrarium: ' + j(r.terrarium) + '\n        anvil:     ' + j(r.anvil)}`);
+      console.log(`\nengine ${engine}: boot ${bootMs} ms, scenario ${terrariumMs} ms (${a.steps.length} txs incl. ${estimateRows.length} gas estimations)  ·  anvil ${anvilMs} ms${engine === 'revm' ? `  ·  revm runs ${sim.stats.runs}, rounds ${sim.stats.rounds}, inside wasm ${sim.stats.wasmMs} ms` : ''}`);
 
-  console.log('\n== transactions (identical = same hash, status, gasUsed, contractAddress, logs on both chains) ==');
-  for (const s of stepDiffs) console.log(`${s.identical ? '  ok ' : ' DIFF'} ${s.status.padEnd(8)} gas ${String(s.gasUsed).padStart(7)}  ${s.label}`);
-  console.log('\n== eth_call results (pair address, code hash, reserves, balances, quotes) ==', callsIdentical ? 'identical' : 'DIFFERENT');
-  console.log(j(a.calls));
-  if (!callsIdentical) console.log('anvil says:', j(b.calls));
-  console.log('\n== revert payloads from eth_call ==', revertsIdentical ? 'identical' : 'DIFFERENT');
-  for (const [k, v] of Object.entries(a.reverts)) console.log(`  ${k.padEnd(12)} -> ${v ? JSON.stringify(v.reason) : 'did not revert'}`);
-  if (!revertsIdentical) console.log('anvil says:', j(b.reverts));
-  console.log('\n== gas estimates (informational; both estimators must be >= gasUsed) ==');
-  for (const r of estimateRows) console.log(`  terrarium ${String(r.terrarium).padStart(8)}  anvil ${String(r.anvil).padStart(8)}  used ${String(r.gasUsed).padStart(8)}  ${r.label}`);
-  console.log('\n== RPC parity (same request to both nodes, normalised) ==');
-  for (const r of parity) console.log(`${r.ok ? '  ok ' : ' DIFF'} ${r.method} ${r.params}${r.ok ? '' : '\n        terrarium: ' + j(r.terrarium) + '\n        anvil:     ' + j(r.anvil)}`);
-  console.log(`\nterrarium ${terrariumMs} ms (${a.steps.length} txs, incl. ${estimateRows.length} gas estimations)  ·  anvil ${anvilMs} ms`);
-
-  const estimatesSound = estimateRows.every((r) => r.terrarium === 'reverts' ? r.anvil === 'reverts' : BigInt(r.terrarium) >= BigInt(r.gasUsed));
-  const ok = stepDiffs.every((s) => s.identical) && callsIdentical && revertsIdentical && a.calls.codeInstalledByteIdentical && a.calls.swap1.allAgree
-    && a.reverts['no approval']?.reason.includes('TransferHelper') && a.reverts['slippage']?.reason === 'UniswapV2Router: INSUFFICIENT_OUTPUT_AMOUNT' && a.reverts['expired']?.reason === 'UniswapV2Router: EXPIRED'
-    && a.steps.filter((s) => s.label.includes('reverts on-chain')).every((s) => s.status === 'reverted') && estimatesSound && parity.every((r) => r.ok);
-  console.log(ok ? '\nPASS' : '\nFAIL');
-  exitCode = ok ? 0 : 1;
+      const estimatesSound = estimateRows.every((r) => r.terrarium === 'reverts' ? r.anvil === 'reverts' : BigInt(r.terrarium) >= BigInt(r.gasUsed));
+      const ok = stepDiffs.every((st) => st.identical) && callsIdentical && revertsIdentical && a.calls.codeInstalledByteIdentical && a.calls.swap1.allAgree
+        && a.reverts['no approval']?.reason.includes('TransferHelper') && a.reverts['slippage']?.reason === 'UniswapV2Router: INSUFFICIENT_OUTPUT_AMOUNT' && a.reverts['expired']?.reason === 'UniswapV2Router: EXPIRED'
+        && a.steps.filter((st) => st.label.includes('reverts on-chain')).every((st) => st.status === 'reverted') && estimatesSound && parity.every((r) => r.ok)
+        && verified.terrarium.allVerified && verified.anvil.allVerified && verified.terrarium.stateRootNonZero === verified.terrarium.blocks;
+      console.log(ok ? `engine ${engine}: PASS` : `engine ${engine}: FAIL`);
+      allOk = allOk && ok;
+    } finally { anvil.kill(); }
+  }
+  console.log(allOk ? '\nPASS' : '\nFAIL');
+  exitCode = allOk ? 0 : 1;
 } catch (e) {
   console.error('test error:', e);
-} finally {
-  anvil.kill();
-  process.exit(exitCode);
 }
+process.exit(exitCode);
