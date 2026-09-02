@@ -25,6 +25,7 @@ npm run example:aave        # http://localhost:5174 → Connect wallet → Terra
 - `terrarium.scenario.ts` restores that fixture as the baseline, `fork: { offline: true }` (any read the fixture cannot
   answer is an error, listed in the dev bar), `clock: 'recording'`, and the ETH price control.
 - `src/` is the dapp: `.env` addresses, viem, EIP-6963. It does not know the Terrarium exists.
-- `test.mjs` replays the fixture offline on both engines: health factor vs client math, interest after an hour, the
+- `test.mjs` replays the fixture offline: health factor vs client math, interest after an hour, the
   price shock halving the health factor, repay-all and withdraw-all. `npm run test:examples`.
-- Re-record against current mainnet: `npm run record:aave` (needs network; a public RPC works).
+- Re-record against current mainnet: `npm run record:aave` (needs network; a public RPC works). Set `VITE_FORK_RPC` in `.env` to run the
+  scenario online instead of offline: reads the fixture lacks are fetched, and the dev bar no longer counts misses.

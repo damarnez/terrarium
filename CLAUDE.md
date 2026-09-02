@@ -3,15 +3,15 @@
 Read HANDOFF.md first for the full story. This file is the short operating manual.
 
 ## What this is
-- **Terrarium** (`packages/terrarium/src/engine.js`): a self-contained EVM chain exposed as an EIP-1193 provider. Two
-  execution engines behind one result shape: `engine: 'revm'` (revm 43 compiled to WebAssembly, `packages/terrarium-evm`,
-  Rust + wasm-bindgen; the scenario default) and `engine: 'js'` (`@ethereumjs/vm`, the reference). State, checkpoints,
-  persistence and fork recording are JavaScript in both; revm reads through a sync, checkpoint-aware state mirror
-  (miss => zero/non-existent locally, fetch + re-run in fork mode). Blocks are sealed with real tx/receipt tries,
-  bloom and (merkle mode) stateRoot. Blocks, receipts, logs, filters, Anvil/Hardhat cheatcodes, JS-mocked
-  contracts, event-reactive actors, wallet-realism knobs (rejection / latency / receipt lag), a read-only `node`
-  provider, injectable clock + seeded PRNG, persistence (IndexedDB / any getItem-setItem store), journal replay,
-  snapshots that roll back everything, fork mode with offline fixtures, live block following.
+- **Terrarium** (`packages/terrarium/src/engine.js`): a self-contained EVM chain exposed as an EIP-1193 provider. One
+  execution engine: revm 43 compiled to WebAssembly (`packages/terrarium-evm`, Rust + wasm-bindgen). The `@ethereumjs/vm`
+  engine was removed in 0.3; the remaining `@ethereumjs/*` packages provide state (Merkle trie, fork RPC state manager),
+  RLP, transactions and block headers. revm reads through a sync, checkpoint-aware state mirror (miss => zero/non-existent
+  locally, fetch + re-run in fork mode). Blocks are sealed with real tx/receipt tries, bloom (own implementation) and
+  (merkle mode) stateRoot. Blocks, receipts, logs, filters, Anvil/Hardhat cheatcodes, event-reactive actors,
+  wallet-realism knobs (rejection / latency / receipt lag), a read-only `node` provider, injectable clock + seeded PRNG,
+  persistence (IndexedDB / any getItem-setItem store), journal replay, snapshots that roll back everything, fork mode
+  with offline fixtures, live block following. No JS-mocked contracts: mock with bytecode (`anvil_setCode` + `setState`).
 - **The library** (`packages/terrarium`, npm workspace, imported as `terrarium/*`): `scenario.ts` (`defineScenario`
   + types), `worker-runtime.ts` (`runScenario`: boots the engine in a **Worker**, runs setup, wires actors, exposes
   `terrarium_actors/status/reset`), `bridge.ts` + `inject.ts` (postMessage bridge, EIP-6963 "Terrarium Wallet",
@@ -38,10 +38,12 @@ npm run build                # dapp WITH the terrarium injected (demo mode); VIT
 npm run build:terrarium      # = npx terrarium build: standalone injectable dist-terrarium/terrarium.js
 npm run e2e:install          # once: Chromium for Playwright
 npm run e2e                  # plain build + injected terrarium, whole flow in headless Chromium (JSON + PASS/FAIL)
+npm test                     # test:unit + test:fork + test:examples (no network, no Foundry, no browser)
+npm run test:unit            # node --test test/unit/*.test.mjs: engine, wasm, scenario runtime, bridge, vite plugin, CLI
 npm run test:uniswap         # real Uniswap V2 in the Terrarium vs Anvil: byte-identical receipts + RPC parity (needs Foundry)
-npm run test:fork            # offline replay of the recorded mainnet fork fixture (test/fixtures/) on both engines; test:fork:record re-records
+npm run test:fork            # offline replay of the recorded mainnet fork fixture (test/fixtures/); test:fork:record re-records
 npm run example:aave / example:euler   # the two protocol examples (ports 5174 / 5175); record:aave / record:euler re-record their fixtures (network)
-npm run test:examples        # offline replays of both examples on both engines
+npm run test:examples        # offline replays of both examples
 npm run build:wasm           # rebuild packages/terrarium-evm/pkg (Rust: wasm32-unknown-unknown target + wasm-bindgen-cli 0.2.127); pkg is committed
 ```
 
@@ -56,15 +58,22 @@ npm run build:wasm           # rebuild packages/terrarium-evm/pkg (Rust: wasm32-
 4. **All state-touching work is serialized** through the single `exclusive()` queue. Never call `mine()`, `runTx`,
    `checkpoint/revert` from outside it. Wallet latency/rejection run in the gate *before* the lock on purpose.
 5. Contract changes: edit `contracts/*.sol`, run `npm run build:contracts`, never hand-edit `src/generated/`.
-6. Fidelity claims must be backed by `npm run test:uniswap` (differential vs Anvil, BOTH engines, verifiable blocks, RPC
-   parity). If you touch tx execution, gas, blocks, receipts, logs, revert data or the state mirror, run it.
+6. Fidelity claims must be backed by `npm run test:uniswap` (differential vs Anvil, verifiable blocks, RPC parity). If you
+   touch tx execution, gas, blocks, receipts, logs, revert data or the state mirror, run it. Everything else has a unit
+   test in `test/unit/`: add one with the change (`npm test` must stay green without network, Foundry or a browser).
 7. RPC errors thrown to viem must extend viem's `BaseError` (`RpcError` in the engine, `ProviderRpcError` in the bridge):
    a foreign error with an unknown code is wrapped as "unknown" and retried 3× with backoff (1 s per reverted estimate).
 8. Rust changes: `npm run build:wasm` regenerates `packages/terrarium-evm/pkg` (committed, so JS-only users need no Rust).
 
 ## Known gotchas (already handled in packages/terrarium/src/engine.js — do not "clean up" these)
 - `@ethereumjs/statemanager` 10.1.3 `RPCStateManager.commit()` only commits the *account* cache → subclass commits all.
-- Bare `runCall` does not clear `originalStorageCache` → `withRollback()` clears it first.
+- Fork reads fetched under a checkpoint (every `eth_call`) are dropped from the state manager's cache on revert; the
+  recording (`remote`) serves them afterwards, since remote state at a fixed block never changes.
+- Vite does not polyfill `process`; ethereumjs depends on `debug`, which reads `process.env.DEBUG` in the browser → every
+  host `vite.config.ts` needs the `define` block (see the tutorial). The CLI build sets it itself.
+- `ctx.fresh` is never true in fork mode (the chain starts at fork block + 1): fixture scenarios seed with `ctx.firstBoot`.
+- `terrarium_reset` clears the whole IndexedDB store of the origin, not one key.
+- Relative imports inside `packages/terrarium/src` carry their `.ts` extension so Node can load the runtime in tests.
 - **Gas is estimated against the *pending* block** (`pendingBlock()`), like geth. Estimating against `latest` made
   real Uniswap swaps run out of gas: the pair's price accumulators cost more when block.timestamp has advanced.
 - Gas estimation is geth-style (full simulated tx, 64/63 probe, binary search); `gasEstimation: 'fast'` skips it.
@@ -86,7 +95,8 @@ npm run build:wasm           # rebuild packages/terrarium-evm/pkg (Rust: wasm32-
 - Tutorial: `docs/tutorial-new-protocol.md`. API reference (all options, sim members, RPC methods, scenario config,
   plugin, CLI): `docs/api.md`. Keep both in sync with `packages/terrarium/src`.
 - Engine API reference: `docs/design-investigation.md` Appendix A; state/persistence chapter §4b.
-- E2E expectations and numbers: `e2e/frogpond.e2e.mjs`.
+- E2E expectations and numbers: `e2e/frogpond.e2e.mjs`. Unit suite: `test/unit/` (`helpers.mjs` boots a sim with a fixed
+  clock; `node --test --test-force-exit` because actor timers may outlive a test).
 - Fidelity proof: `test/uniswap-v2.mjs`; fork demo: `test/fork-record.mjs`, `test/fork-offline.mjs`.
 - Test accounts: the 10 Anvil keys (`TEST_KEYS`); account 0 is "you", account 9 the treasury that deploys PEPE and
   seeds the pool, accounts 6–8 the "Pond life" bot frogs. PEPE's address is deterministic (treasury nonce 0).

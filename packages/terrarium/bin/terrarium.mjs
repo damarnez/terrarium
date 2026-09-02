@@ -24,9 +24,10 @@ if (cmd === 'build') {
   writeFileSync(join(dir, 'worker.ts'), `import scenario from '${scenario}';\nimport { runScenario } from 'terrarium/worker';\nrunScenario(scenario);\n`);
   writeFileSync(join(dir, 'inject-bundle.ts'), `import { startTerrarium } from 'terrarium/inject';\ndeclare const __TERRARIUM_WORKER_SRC__: string;\nstartTerrarium(new Worker(URL.createObjectURL(new Blob([__TERRARIUM_WORKER_SRC__], { type: 'text/javascript' })), { type: 'module' }));\n`);
   await build({ root, configFile: false, logLevel: 'warn', define, build: { outDir: out, emptyOutDir: true, target: 'es2022', minify: true, lib: { entry: '.terrarium/worker.ts', formats: ['es'], fileName: () => 'terrarium.worker.js' }, rollupOptions: { output: { codeSplitting: false } } } });
-  const workerSrc = readFileSync(join(root, out, 'terrarium.worker.js'), 'utf8');
+  const outDir = resolve(root, out);
+  const workerSrc = readFileSync(join(outDir, 'terrarium.worker.js'), 'utf8');
   await build({ root, configFile: false, logLevel: 'warn', define: { ...define, __TERRARIUM_WORKER_SRC__: JSON.stringify(workerSrc) }, build: { outDir: out, emptyOutDir: false, target: 'es2022', minify: true, lib: { entry: '.terrarium/inject-bundle.ts', formats: ['iife'], name: 'Terrarium', fileName: () => 'terrarium.js' } } });
-  for (const f of ['terrarium.worker.js', 'terrarium.js']) console.log(`${out}/${f}: ${(statSync(join(root, out, f)).size / 1024).toFixed(0)} KB`);
+  for (const f of ['terrarium.worker.js', 'terrarium.js']) console.log(`${out}/${f}: ${(statSync(join(outDir, f)).size / 1024).toFixed(0)} KB`);
 } else if (cmd === 'fetch-code') {
   if (!args.rpc || positional.length === 0) { console.error('usage: terrarium fetch-code <name=0xaddress>... --rpc <url> [--out fixture.json]'); process.exit(1); }
   const rpc = async (method, params) => { const r = await (await fetch(args.rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json(); if (r.error) throw new Error(r.error.message); return r.result; };

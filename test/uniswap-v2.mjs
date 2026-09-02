@@ -13,7 +13,6 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { createTerrarium, TEST_KEYS } from 'terrarium/engine';
 import { createBlockHeaderFromRPC, genTransactionsTrieRoot } from '@ethereumjs/block';
 import { createTxFromRPC } from '@ethereumjs/tx';
-import { encodeReceipt, Bloom } from '@ethereumjs/vm';
 import { MerklePatriciaTrie } from '@ethereumjs/mpt';
 import { RLP } from '@ethereumjs/rlp';
 import { Common, Hardfork, Mainnet } from '@ethereumjs/common';
@@ -180,7 +179,12 @@ async function rpcParity(rawA, rawB, ctx) {
 }
 
 // ---- verifiable blocks: recompute every header hash, transactions root, receipts root and bloom from RPC output ----
-// A node's word is not taken for any of them. The same verifier runs against Anvil, which proves the verifier.
+// A node's word is not taken for any of them. The same verifier runs against Anvil, which proves the verifier. The
+// bloom and the receipt encoding are written here from the spec (yellow paper M3:2048, EIP-2718 + EIP-658), independent
+// of the engine's own implementation.
+const bloomAdd = (bits, data) => { const h = keccak256(data, 'bytes'); for (let i = 0; i < 3; i++) { const loc = ((h[2 * i] << 8) | h[2 * i + 1]) & 2047; bits[255 - (loc >> 3)] |= 1 << (loc & 7); } };
+const bloomOfLogs = (logs) => { const bits = new Uint8Array(256); for (const l of logs) { bloomAdd(bits, hexToBytes(l.address)); for (const t of l.topics) bloomAdd(bits, hexToBytes(t)); } return bits; };
+const encodeReceipt = (r) => { const body = RLP.encode([r.status === '0x1' ? Uint8Array.of(1) : new Uint8Array(), BigInt(r.cumulativeGasUsed) === 0n ? new Uint8Array() : hexToBytes(numberToHex(BigInt(r.cumulativeGasUsed)).replace(/^0x(.(..)*)$/, '0x0$1')), hexToBytes(r.logsBloom), r.logs.map((l) => [hexToBytes(l.address), l.topics.map(hexToBytes), hexToBytes(l.data)])]); return Number(r.type) === 0 ? body : new Uint8Array([Number(r.type), ...body]); };
 async function verifyBlocks(raw) {
   const common = new Common({ chain: { ...Mainnet, chainId: 31337, name: 'verify' }, hardfork: Hardfork.Cancun });
   const latest = Number(await raw('eth_blockNumber', []));
@@ -192,20 +196,21 @@ async function verifyBlocks(raw) {
     const txs = await Promise.all(b.transactions.map((t) => createTxFromRPC(t, { common })));
     if (bytesToHex(await genTransactionsTrieRoot(txs)) === b.transactionsRoot) out.txRoot++;
     const receipts = await Promise.all(b.transactions.map((t) => raw('eth_getTransactionReceipt', [t.hash])));
-    const trie = new MerklePatriciaTrie(); const bloom = new Bloom(undefined, common);
+    const trie = new MerklePatriciaTrie(); const bloom = new Uint8Array(256); let receiptBloomsOk = true;
     for (const [i, r] of receipts.entries()) {
-      await trie.put(RLP.encode(i), encodeReceipt({ status: Number(r.status), cumulativeBlockGasUsed: BigInt(r.cumulativeGasUsed), bitvector: hexToBytes(r.logsBloom), logs: r.logs.map((l) => [hexToBytes(l.address), l.topics.map(hexToBytes), hexToBytes(l.data)]) }, Number(r.type)));
-      bloom.or(new Bloom(hexToBytes(r.logsBloom), common));
+      await trie.put(RLP.encode(i), encodeReceipt(r));
+      const own = bloomOfLogs(r.logs); if (bytesToHex(own) !== r.logsBloom) receiptBloomsOk = false;   // each receipt's bloom, from its logs
+      for (let k = 0; k < 256; k++) bloom[k] |= own[k];
     }
     if (bytesToHex(trie.root()) === b.receiptsRoot) out.receiptsRoot++;
-    if (bytesToHex(bloom.bitvector) === b.logsBloom) out.bloom++;
+    if (receiptBloomsOk && bytesToHex(bloom) === b.logsBloom) out.bloom++;
     if (!/^0x0+$/.test(b.stateRoot)) out.stateRootNonZero++;
   }
   out.allVerified = [out.headerHash, out.txRoot, out.receiptsRoot, out.bloom].every((c) => c === out.blocks);
   return out;
 }
 
-// ---- run on both chains ----------------------------------------------------------------------------------------
+// ---- run on both chains (Terrarium vs a fresh Anvil) ----------------------------------------------------------------------------------------
 /** a fresh Anvil per engine run: same txs, same blocks, nothing left over from a previous round */
 async function startAnvil(port) {
   const url = `http://127.0.0.1:${port}`;
@@ -222,7 +227,7 @@ async function startAnvil(port) {
 let exitCode = 1, allOk = true;
 const user0 = privateKeyToAccount(TEST_KEYS[0]).address;
 try {
-  for (const [i, engine] of (process.env.TERRARIUM_ENGINES ?? 'js,revm').split(',').entries()) {
+  for (const [i, engine] of (process.env.TERRARIUM_ENGINES ?? 'revm').split(',').entries()) {
     const anvil = await startAnvil(8546 + i);
     try {
       const t1 = Date.now();

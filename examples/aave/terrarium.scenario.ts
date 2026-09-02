@@ -11,7 +11,6 @@ const forkRpc = import.meta.env.VITE_FORK_RPC || undefined;
 export default defineScenario({
   chainId: 1,
   seed: 7,
-  engine: 'revm',
   persist: `aave-example-${fixture.blockNumber}`,   // keyed by the fixture: a re-recorded fixture starts fresh
   fork: { url: forkRpc, blockNumber: fixture.blockNumber, offline: !forkRpc },   // offline by default: every read must come from the fixture
   restore: fixture.dump,

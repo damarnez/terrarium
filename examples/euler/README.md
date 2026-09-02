@@ -20,5 +20,4 @@ npm run example:euler       # http://localhost:5175 → Connect wallet → Terra
 ## How it is built
 Same recipe as the Aave example: `record.mjs` (fork, deal, snapshot, exercise every path, revert, dump →
 `fixtures/euler-mainnet.json`, ≈500 KB), `terrarium.scenario.ts` (offline restore of the fixture), `src/` (an ordinary
-dapp: `.env` addresses, viem, EIP-6963), `test.mjs` (offline replay on both engines, `npm run test:examples`),
-`npm run record:euler` to re-record.
+dapp: `.env` addresses, viem, EIP-6963), `test.mjs` (offline replay, `npm run test:examples`), `npm run record:euler` to re-record, `VITE_FORK_RPC` in `.env` to run online.

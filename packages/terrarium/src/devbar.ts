@@ -55,7 +55,7 @@ export function mountDevBar(provider: Provider) {
     const s = await rpc('terrarium_status').catch(() => null); if (!s) return;
     info.querySelector('[data-f=chain]')!.textContent = String(s.chainId);
     info.querySelector('[data-f=block]')!.textContent = String(parseInt(s.block, 16));
-    info.querySelector('[data-f=engine]')!.textContent = (s.engine === 'revm' ? 'revm/wasm' : 'ethereumjs') + (s.fork ? ` · fork @${s.fork.blockNumber}${s.fork.offline ? ' offline' : ''}${s.fork.misses ? ` · ${s.fork.misses} MISSES` : ''}` : '')
+    info.querySelector('[data-f=engine]')!.textContent = 'revm/wasm' + (s.fork ? ` · fork @${s.fork.blockNumber}${s.fork.offline ? ' offline' : ''}${s.fork.misses ? ` · ${s.fork.misses} MISSES` : ''}` : '')
       + (s.restoredFromPersistence ? ` · ${s.localBlocks} local block${s.localBlocks === 1 ? '' : 's'} restored from a previous session (Reset to start clean)` : '');
     const ck = JSON.stringify(s.controls ?? []);
     if (ck !== controlsKey) { controlsKey = ck; controls.replaceChildren(...(s.controls ?? []).map((c: any, i: number) => btn(c.label, `control-${i}`, c.title ?? c.method, () => rpc(c.method, c.params ?? [])))); }

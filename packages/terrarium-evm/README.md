@@ -30,7 +30,8 @@ node smoke.mjs                          # deploy PEPE, call balanceOf, trace the
 `getrandom` is pinned with its `js` feature: wasm32-unknown-unknown has no OS entropy source.
 
 ## Fidelity and speed
-`npm run test:uniswap` (repo root) runs a 14-transaction Uniswap V2 scenario on this engine, on the `@ethereumjs/vm`
-engine and on Anvil: every transaction hash, receipt, log, call result and revert payload is byte-identical, every
-block's header hash and roots recompute from the RPC output. The scenario takes ≈110 ms here (≈25 ms inside the wasm)
-versus ≈350 ms on the JavaScript engine and ≈50 ms on native Anvil.
+`npm run test:uniswap` (repo root) runs a 14-transaction Uniswap V2 scenario on this engine and on Anvil: every
+transaction hash, receipt, log, call result and revert payload is byte-identical, every block's header hash and roots
+recompute from the RPC output. The scenario takes ≈135 ms here (≈35 ms inside the wasm) versus ≈75 ms on native Anvil.
+`test/unit/wasm.test.mjs` pins the `run` / `host` contract described above. Since terrarium 0.3 this is the only
+execution engine.

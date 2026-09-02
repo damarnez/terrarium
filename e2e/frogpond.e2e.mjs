@@ -25,7 +25,7 @@ const points = async () => Number(await page.getByTestId('chart').getAttribute('
 const headBlock = async () => (await page.getByTestId('chain').innerText()).match(/block #(\d+)/)[1];   // the dapp's own view of the head
 try {
   results.dappBundleIsPlain = !readdirSync('dist/assets').some((f) => /terrarium|worker/.test(f));
-  await page.goto(`http://127.0.0.1:${PORT}/`);
+  await page.goto(`http://localhost:${PORT}/`);   // localhost, not 127.0.0.1: vite preview may bind IPv6 only
   await page.getByTestId('price').waitFor({ timeout: 30000 });
   results.bootMs = Date.now() - t0;
   results.priceAtOpen = await price();

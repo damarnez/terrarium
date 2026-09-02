@@ -1,7 +1,7 @@
 // examples/euler/test.mjs — offline replay on the recorded Euler V2 fork (network forbidden): deposit, enable collateral
 // and controller, borrow, check the vault's risk-adjusted liquidity against the UI's math, accrue an hour of interest,
 // repay, disable, withdraw.
-//   node examples/euler/test.mjs            TERRARIUM_ENGINE=revm node examples/euler/test.mjs
+//   node examples/euler/test.mjs
 import { readFileSync } from 'node:fs';
 import { createPublicClient, createWalletClient, custom, defineChain, formatUnits, maxUint256, parseEther } from 'viem';
 import { createTerrarium } from 'terrarium/engine';
@@ -9,19 +9,18 @@ import { EULER, vaultAbi, evcAbi, erc20Abi } from './src/protocol.ts';
 
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/euler-mainnet.json', import.meta.url), 'utf8'));
 const { evc, eWeth, eUsdc, weth, usdc, user } = fixture.addresses;
-const engine = process.env.TERRARIUM_ENGINE ?? 'js';
 let networkAttempts = 0; globalThis.fetch = async (url) => { networkAttempts++; throw new Error(`offline: ${url}`); };
 // Chainlink adapters revert with PriceOracle_TooStale once the recorded round is older than their limit: with a wall
 // clock this fixture would rot. Anchor the chain clock to the recording; time still advances via evm_increaseTime.
 const anchor = Number(BigInt(fixture.dump.chain.blocks.at(-1).timestamp));
 const t0 = Date.now();
-const sim = await createTerrarium({ chainId: 1, engine, fork: { blockNumber: fixture.blockNumber, offline: true }, restore: fixture.dump, seed: 1, clock: () => anchor });
+const sim = await createTerrarium({ chainId: 1, fork: { blockNumber: fixture.blockNumber, offline: true }, restore: fixture.dump, seed: 1, clock: () => anchor });
 const chain = defineChain({ id: 1, name: 'fork', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: { default: { http: [] } } });
 const pub = createPublicClient({ chain, transport: custom(sim.provider), pollingInterval: 20 });
 const w = createWalletClient({ chain, transport: custom(sim.provider), account: user });
 const read = (address, abi, functionName, args = []) => pub.readContract({ address, abi, functionName, args });
 const tx = async (req) => { const r = await pub.waitForTransactionReceipt({ hash: await w.writeContract(req) }); if (r.status !== 'success') throw new Error(`${req.functionName} reverted`); return r; };
-const out = { engine, restoredMs: Date.now() - t0 };
+const out = { restoredMs: Date.now() - t0 };
 
 const ltv = await read(eUsdc, vaultAbi, 'LTVBorrow', [eWeth]);
 out.startsClean = (await read(eWeth, vaultAbi, 'balanceOf', [user])) === 0n && (await read(evc, evcAbi, 'getControllers', [user])).length === 0;

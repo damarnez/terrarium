@@ -1,7 +1,7 @@
 // examples/aave/test.mjs — offline replay on the recorded Aave V3 fork: the network is forbidden (fork.offline), every read
 // must come from the fixture. Checks the UI's math against the real Pool: health factor, interest over an hour, and a
 // price shock through a fixed price feed installed at the Chainlink source address.
-//   node examples/aave/test.mjs            TERRARIUM_ENGINE=revm node examples/aave/test.mjs
+//   node examples/aave/test.mjs
 import { readFileSync } from 'node:fs';
 import { createPublicClient, createWalletClient, custom, defineChain, formatUnits, maxUint256, parseEther } from 'viem';
 import { createTerrarium } from 'terrarium/engine';
@@ -10,10 +10,9 @@ import { FixedPriceFeed } from './src/generated/contracts.ts';
 
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/aave-mainnet.json', import.meta.url), 'utf8'));
 const { pool, weth, usdc, oracle, aWeth, vDebtUsdc, ethSource, user } = fixture.addresses;
-const engine = process.env.TERRARIUM_ENGINE ?? 'js';
 let networkAttempts = 0; globalThis.fetch = async (url) => { networkAttempts++; throw new Error(`offline: ${url}`); };
 const t0 = Date.now();
-const sim = await createTerrarium({ chainId: 1, engine, fork: { blockNumber: fixture.blockNumber, offline: true }, restore: fixture.dump, seed: 1 });
+const sim = await createTerrarium({ chainId: 1, fork: { blockNumber: fixture.blockNumber, offline: true }, restore: fixture.dump, seed: 1 });
 const chain = defineChain({ id: 1, name: 'fork', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: { default: { http: [] } } });
 const pub = createPublicClient({ chain, transport: custom(sim.provider), pollingInterval: 20 });
 const w = createWalletClient({ chain, transport: custom(sim.provider), account: user });
@@ -22,7 +21,7 @@ const tx = async (req) => { const r = await pub.waitForTransactionReceipt({ hash
 const account = async () => { const [collateral, debt, available, liqThreshold, ltv, hf] = await read(pool, poolAbi, 'getUserAccountData', [user]); return { collateral, debt, available, liqThreshold, ltv, hf }; };
 /** what the UI computes: HF = collateral × liquidation threshold / debt (base currency, 8 decimals; thresholds in bps) */
 const clientHf = (a) => (a.debt === 0n ? Infinity : Number(a.collateral * a.liqThreshold) / 10000 / Number(a.debt));
-const out = { engine, restoredMs: Date.now() - t0 };
+const out = { restoredMs: Date.now() - t0 };
 
 out.startWeth = formatUnits(await read(weth, erc20Abi, 'balanceOf', [user]), 18);
 const a0 = await account(); out.startsClean = a0.collateral === 0n && a0.debt === 0n;   // the fixture has no position: borrowing needs collateral first

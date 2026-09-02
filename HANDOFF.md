@@ -1,6 +1,6 @@
 # Handoff — how this project came to be, what is proven, what is next
 
-Written 2 Sep 2026 at the end of a design conversation. Target location on Daniel's Mac:
+Written 2 Sep 2026 at the end of a design conversation, extended pass by pass since. Target location on Daniel's Mac:
 `/Users/daniel/Work/personal/terrarium`.
 
 ## 1. The original idea (Daniel)
@@ -150,3 +150,25 @@ fork replay. Verified: `npm run e2e`, `npm run test:uniswap`, `npm run test:fork
   account, so a fixture recorded with one now serves the other).
 - Learned: forked oracles rot. Euler's Chainlink adapters revert `PriceOracle_TooStale` an hour past the recorded round;
   `clock: 'recording'` keeps fixtures usable, and "+1 hour" in the dev bar shows the real failure mode.
+- Follow-up commit: the dev bar says how many local blocks a reload restored; the example tests assert the fixture starts
+  clean and that borrowing without collateral reverts.
+
+## 11. Sixth pass (3 Sep 2026) — one engine, a unit suite, the docs
+- **`@ethereumjs/vm` removed (0.3).** revm/wasm is the only execution engine; `engine: 'js'` throws. Gone with it:
+  `createVM`, `runTx`, the JS `mockContract` (mock with bytecode instead), and the `@ethereumjs/vm` / `@ethereumjs/evm`
+  dependencies. The bloom and the EIP-2718 receipt encoding are now the engine's own (from the spec); `test/uniswap-v2.mjs`
+  verifies them against Anvil with a second, independent implementation. `sim.vm` became `sim.stateManager`. The other
+  `@ethereumjs/*` packages stay for the trie, RLP, transactions and headers.
+- **Unit suite.** `test/unit/*.test.mjs` on Node's test runner, sixty tests, no network / Foundry / browser: chain and
+  clock, transactions and gas, cheatcodes and snapshots, `deal` / `setState` / `slotFromLayout`, logs, filters and
+  actors, the wallet knobs and the node provider, persistence and journal replay, fork mode (the committed fixture
+  offline, and an online fork against a local fake JSON-RPC node), the wasm engine's contract, the scenario runtime with
+  shimmed Worker globals, the postMessage bridge with both ends in one process, the Vite plugin, and the CLI including a
+  standalone build. `npm test` runs it with the fork and example replays.
+- **Bugs the tests found:** `evm_setAutomine(true)` after interval mining left the interval timer running (the dev bar's
+  toggle); an actor that threw synchronously escaped as an uncaught exception; `terrarium build --out <absolute>` broke;
+  every `eth_call` on an online fork re-fetched the called contract's proof (the checkpoint dropped the cache). Also: the
+  e2e now opens `localhost`, since Vite's preview server may bind IPv6 only (Node 25 on macOS did).
+- **Docs.** Tutorial rewritten (two tracks, what `ctx` gives you, the dev bar, Node tests, use cases, troubleshooting);
+  api.md corrected (`terrarium_status` shape, `fresh` vs `firstBoot`, `terrarium_reset`, Vite `define`, test ids, bridge);
+  README gained the use-case table; design doc says what runs today.

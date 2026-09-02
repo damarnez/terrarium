@@ -3,8 +3,8 @@
 import { createPublicClient, createWalletClient, custom, defineChain, toHex, type Address, type Hex } from 'viem';
 // @ts-ignore — the engine is plain ESM JavaScript
 import { createTerrarium, indexedDBStorage } from './engine.js';
-import { serveProvider } from './bridge';
-import type { ScenarioConfig, ScenarioContext } from './scenario';
+import { serveProvider } from './bridge.ts';
+import type { ScenarioConfig, ScenarioContext } from './scenario.ts';
 
 export async function runScenario(config: ScenarioConfig) {
   const chainId = config.chainId ?? 31337;
@@ -15,7 +15,7 @@ export async function runScenario(config: ScenarioConfig) {
   const bootWall = Math.floor(Date.now() / 1000);
   const anchor = config.clock === 'recording' ? Number(BigInt(restore?.chain?.blocks?.at(-1)?.timestamp ?? bootWall)) : null;
   const clock = typeof config.clock === 'number' ? () => config.clock as number : anchor !== null ? () => anchor + (Math.floor(Date.now() / 1000) - bootWall) : undefined;
-  const sim: any = await createTerrarium({ chainId, seed: config.seed, hardfork: config.hardfork, engine: config.engine ?? 'revm', state: config.state, gasEstimation: config.gasEstimation, wallet: config.wallet, fork: config.fork, restore, clock, persist: storage ? { storage, key } : undefined });
+  const sim: any = await createTerrarium({ chainId, seed: config.seed, hardfork: config.hardfork, state: config.state, gasEstimation: config.gasEstimation, wallet: config.wallet, fork: config.fork, restore, clock, persist: storage ? { storage, key } : undefined });
   const chain = defineChain({ id: chainId, name: 'Terrarium', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: { default: { http: [] } } });
   const pub = createPublicClient({ chain, transport: custom(sim.provider), pollingInterval: 20 });
   const rpc = (method: string, params: unknown[] = []) => sim.provider.request({ method, params });
@@ -45,7 +45,7 @@ export async function runScenario(config: ScenarioConfig) {
       timers.forEach(clearInterval); timers = []; unsubs.forEach((u) => u()); unsubs = [];
       if (!on) return;
       for (const a of config.actors ?? []) {
-        const safe = (log?: any) => Promise.resolve(a.run(ctx, log)).catch((e) => console.warn(`[terrarium] actor ${a.name ?? ''} failed:`, e?.message ?? e));
+        const safe = (log?: any) => Promise.resolve().then(() => a.run(ctx, log)).catch((e) => console.warn(`[terrarium] actor ${a.name ?? ''} failed:`, e?.message ?? e));
         if (a.every) timers.push(setInterval(() => safe(), a.every));
         if (a.on) unsubs.push(sim.onLog(typeof a.on === 'function' ? a.on(ctx) : a.on, (log: any) => safe(log)));
       }

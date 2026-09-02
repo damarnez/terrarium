@@ -55,8 +55,6 @@ export interface ScenarioConfig {
   /** IndexedDB key the chain persists under; false = in-memory only */
   persist?: string | false;
   hardfork?: string;
-  /** execution engine: 'revm' (revm compiled to WebAssembly, fast) or 'js' (@ethereumjs/vm, the reference). Default 'revm'. */
-  engine?: 'revm' | 'js';
   /** 'merkle' (default): real stateRoot in every header. 'simple': flat maps, placeholder root. */
   state?: 'merkle' | 'simple';
   /** fork a live chain: state is read lazily from `url` at `blockNumber` (and recorded). `offline: true` forbids the

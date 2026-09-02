@@ -9,7 +9,6 @@ const forkRpc = import.meta.env.VITE_FORK_RPC || undefined;
 export default defineScenario({
   chainId: 1,
   seed: 11,
-  engine: 'revm',
   persist: `euler-example-${fixture.blockNumber}`,   // keyed by the fixture: a re-recorded fixture starts fresh
   fork: { url: forkRpc, blockNumber: fixture.blockNumber, offline: !forkRpc },
   restore: fixture.dump,

@@ -1,8 +1,8 @@
 # terrarium
 
-A complete EVM chain inside the page, presented to your dapp as an EIP-6963 wallet. Real bytecode execution (revm in
-WebAssembly, or `@ethereumjs/vm`), real and verifiable blocks, receipts, logs and reverts, byte-identical to Anvil.
-Your dapp does not know it is there.
+A complete EVM chain inside the page, presented to your dapp as an EIP-6963 wallet. Real bytecode execution (revm
+compiled to WebAssembly), real and verifiable blocks, receipts, logs and reverts, byte-identical to Anvil. Your dapp does
+not know it is there.
 
 ## Entry points
 | import | what |
@@ -11,6 +11,7 @@ Your dapp does not know it is there.
 | `terrarium/scenario` | `defineScenario(config)` + types — what runs in the Worker when the page loads |
 | `terrarium/worker` | `runScenario(config)` — the Worker runtime (boot, setup, actors, `terrarium_*` RPCs, provider bridge) |
 | `terrarium/inject` | `startTerrarium(worker)` — page side: EIP-6963 announcement, `window.terrarium`, dev bar |
+| `terrarium/bridge` | `serveProvider` / `createWorkerProvider` — the postMessage bridge, for custom hosts |
 | `terrarium/vite` | `terrarium({ scenario? })` — Vite plugin: injects the whole thing into `index.html`; off with `VITE_TERRARIUM=off` |
 | `terrarium/fixtures/uniswap-v2-mainnet.json` | mainnet runtime bytecode of Uniswap V2 Router02, Factory, WETH9, for `ctx.install()` |
 | `npx terrarium build` / `npx terrarium fetch-code` | one injectable script for Playwright & co.; bytecode fixtures from any node |
@@ -28,7 +29,11 @@ export default defineScenario({
 ```ts
 // vite.config.ts
 import { terrarium } from 'terrarium/vite';
-export default defineConfig({ plugins: [react(), terrarium()] });
+export default defineConfig({
+  plugins: [react(), terrarium()],
+  define: { 'process.env.DEBUG': 'undefined', 'process.env.TERRARIUM_DEBUG': 'undefined' },   // ethereumjs → debug → process.env
+  build: { target: 'es2022' }, worker: { format: 'es' },
+});
 ```
 ```js
 // Playwright, against the dapp built with VITE_TERRARIUM=off
@@ -41,4 +46,4 @@ Full reference: [docs/api.md](../../docs/api.md). Tutorial: [docs/tutorial-new-p
 - Every state mutation goes through the RPC layer (journaled, persisted); all state work is serialized in one queue.
 - Fake balances go in as EVM state (`sim.deal`, `sim.setState`, cheatcodes, impersonated txs), never as rewritten responses.
 - Errors thrown to the dapp extend viem's `BaseError`, so viem treats them like a real node's (no retries on reverts).
-- Fidelity is proven, not claimed: `npm run test:uniswap` in the repo root runs the same scenario on both engines and on Anvil.
+- Fidelity is proven, not claimed: `npm run test:uniswap` in the repo root runs the same scenario here and on Anvil; `npm test` covers the rest.

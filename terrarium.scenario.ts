@@ -21,7 +21,6 @@ const SWAP_TOPIC = keccak256(toHex('Swap(address,uint256,uint256,uint256,uint256
 export default defineScenario({
   chainId: Number(import.meta.env.VITE_CHAIN_ID ?? 31337),
   seed: 1337,
-  engine: 'revm',            // revm compiled to WebAssembly; 'js' for the @ethereumjs/vm reference engine
   persist: 'frogpond',
   actorsLabel: 'Pond life',
 

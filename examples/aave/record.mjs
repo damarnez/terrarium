@@ -13,7 +13,7 @@ const remote = async (method, params) => (await (await fetch(RPC, { method: 'POS
 const blockNumber = Number(await remote('eth_blockNumber', [])) - 8;
 console.log(`forking mainnet at block ${blockNumber} via ${RPC}`);
 const t0 = Date.now();
-const sim = await createTerrarium({ chainId: 1, engine: process.env.TERRARIUM_ENGINE ?? 'revm', fork: { url: RPC, blockNumber }, seed: 1 });
+const sim = await createTerrarium({ chainId: 1, fork: { url: RPC, blockNumber }, seed: 1 });
 const chain = defineChain({ id: 1, name: 'mainnet-fork', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: { default: { http: [] } } });
 const pub = createPublicClient({ chain, transport: custom(sim.provider), pollingInterval: 20 });
 const user = sim.accounts[0].address;
