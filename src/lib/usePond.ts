@@ -157,7 +157,9 @@ export function usePond(readProvider: EIP1193Provider | null, wallet: WalletCtx 
     return () => { stop = true; unwatchLogs(); clearInterval(timer); };
   }, [pub, pool, ingest, refresh, reload]);
 
-  const deadline = useCallback(async () => (await pub!.getBlock()).timestamp + 1200n, [pub]);
+  // deadlines come from the PENDING block's timestamp: on an idle chain `latest` can be hours old, and a dev tool can
+  // shift the chain clock — Date.now() would be wrong in the other direction. The pending block is what geth/Anvil report too.
+  const deadline = useCallback(async () => (await pub!.getBlock({ blockTag: 'pending' })).timestamp + 1200n, [pub]);
 
   /** Run a write end to end with status reporting: pending -> confirmed/failed, then refresh. */
   const run = useCallback(async (label: string, fn: () => Promise<Hex>) => {

@@ -485,6 +485,13 @@ export async function createTerrarium(opts = {}) {
     if (!h) return { number: hex(b.number), hash: b.hash, parentHash: b.parentHash, nonce: '0x0000000000000000', sha3Uncles: ZERO32, logsBloom: '0x' + '00'.repeat(256), transactionsRoot: ZERO32, stateRoot: ZERO32, receiptsRoot: ZERO32, miner: '0x0000000000000000000000000000000000000000', difficulty: '0x0', totalDifficulty: '0x0', extraData: '0x', size: '0x400', gasLimit: hex(b.gasLimit), gasUsed: hex(b.gasUsed), timestamp: hex(b.timestamp), baseFeePerGas: hex(b.baseFeePerGas), mixHash: ZERO32, uncles: [], withdrawals: [], withdrawalsRoot: EMPTY_ROOT, blobGasUsed: '0x0', excessBlobGas: '0x0', parentBeaconBlockRoot: ZERO32, transactions };
     return { number: h.number, hash: b.hash, parentHash: h.parentHash, nonce: h.nonce, sha3Uncles: h.uncleHash, logsBloom: h.logsBloom, transactionsRoot: h.transactionsTrie, stateRoot: h.stateRoot, receiptsRoot: h.receiptTrie, miner: h.coinbase, difficulty: h.difficulty, totalDifficulty: '0x0', extraData: h.extraData, size: b.size ?? '0x0', gasLimit: h.gasLimit, gasUsed: h.gasUsed, timestamp: h.timestamp, baseFeePerGas: h.baseFeePerGas, mixHash: h.mixHash, uncles: [], withdrawals: [], withdrawalsRoot: h.withdrawalsRoot ?? EMPTY_ROOT, blobGasUsed: h.blobGasUsed ?? '0x0', excessBlobGas: h.excessBlobGas ?? '0x0', parentBeaconBlockRoot: h.parentBeaconBlockRoot ?? ZERO32, transactions };
   }
+  /** The block the next transaction lands in, as geth/Anvil report `pending`: real next number and timestamp, no hash.
+   *  A dapp that derives deadlines from it is correct on an idle chain (where `latest` may be hours old) and when the
+   *  dev bar has shifted the clock. */
+  function rpcPendingBlock(full) {
+    const h = pendingBlock().header, parent = latest();
+    return { number: hex(h.number), hash: null, parentHash: parent.hash, nonce: '0x0000000000000000', sha3Uncles: '0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347', logsBloom: '0x' + '00'.repeat(256), transactionsRoot: EMPTY_ROOT, stateRoot: parent.header?.stateRoot ?? ZERO32, receiptsRoot: EMPTY_ROOT, miner: '0x0000000000000000000000000000000000000000', difficulty: '0x0', totalDifficulty: '0x0', extraData: '0x', size: '0x0', gasLimit: hex(gasLimit), gasUsed: '0x0', timestamp: hex(h.timestamp), baseFeePerGas: hex(baseFee), mixHash: ZERO32, uncles: [], withdrawals: [], withdrawalsRoot: EMPTY_ROOT, blobGasUsed: '0x0', excessBlobGas: '0x0', parentBeaconBlockRoot: ZERO32, transactions: pending.map((p) => (full ? p.rpc : p.hash)) };
+  }
   function blockByTag(tag) {
     if (tag === undefined || tag === 'latest' || tag === 'pending' || tag === 'safe' || tag === 'finalized') return latest();
     if (tag === 'earliest') return blocks[0];
@@ -547,7 +554,7 @@ export async function createTerrarium(opts = {}) {
         case 'web3_clientVersion': return 'terrarium/0.1.0';
         case 'eth_syncing': return false;
         case 'eth_blockNumber': return hex(latest().number);
-        case 'eth_getBlockByNumber': { const b = blockByTag(params[0]); return b ? rpcBlock(b, !!params[1]) : null; }
+        case 'eth_getBlockByNumber': { if (params[0] === 'pending') return rpcPendingBlock(!!params[1]); const b = blockByTag(params[0]); return b ? rpcBlock(b, !!params[1]) : null; }
         case 'eth_getBlockByHash': { const b = blocks.find((x) => x.hash === params[0]); return b ? rpcBlock(b, !!params[1]) : null; }
         case 'eth_getBalance': return hex(((await vm.stateManager.getAccount(createAddressFromString(params[0]))) ?? new Account()).balance);
         case 'eth_getTransactionCount': return hex(((await vm.stateManager.getAccount(createAddressFromString(params[0]))) ?? new Account()).nonce);

@@ -62,7 +62,9 @@ npm run test:fork            # offline replay of the recorded mainnet fork fixtu
   real Uniswap swaps run out of gas: the pair's price accumulators cost more when block.timestamp has advanced.
 - Gas estimation is geth-style (full simulated tx, 64/63 probe, binary search); `gasEstimation: 'fast'` skips it.
 - Filter cursors resolve block tags beyond `latest` numerically, and are clamped on snapshot revert.
-- `deadline` params come from the chain's clock (`sim.now()` / block timestamp), never `Date.now()`.
+- `deadline` params come from the chain's clock: `sim.now()` in scenarios, the **pending** block's timestamp in the dapp
+  (`getBlock({ blockTag: 'pending' })`). Never `Date.now()` (the dev bar shifts time) and never `latest` (an idle chain's
+  latest block can be hours old: real Uniswap answered `EXPIRED` after an hour without trades).
 - Dropped (invalid) txs get a failed receipt so `waitForTransactionReceipt` never hangs.
 - viem's `watchBlockNumber` ignores a head moving backwards; the dapp polls the head itself and reloads history when
   the number drops or the hash changes (`usePond.ts`).
