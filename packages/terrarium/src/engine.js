@@ -47,15 +47,22 @@ function createLock() {
  *  replayed offline (no RPC, no rate limits, deterministic CI). */
 class RecordingRPCStateManager extends RPCStateManager {
   remote = { accounts: new Map(), code: new Map(), storage: new Map() };
+  /** offline: a cache miss is a bug in the fixture, not a reason to reach the network — throw a precise error instead */
+  offline = false; misses = [];
+  miss(kind, key) { this.misses.push({ kind, key }); throw new OfflineStateError(`offline fork: ${kind} ${key} is not in the fixture — record it (warm up that read) or run online`); }
   /** Upstream bug (ethereumjs statemanager 10.1.3): RPCStateManager.commit() only commits the *account* cache,
    *  leaving the code/storage caches one checkpoint deep → a later revert() restores the wrong level.
    *  Commit all three caches, like MerkleStateManager does. */
   async commit() { this._caches.commit(); }
   /** public RPCs rate-limit and hiccup; retry with backoff instead of failing the whole tx */
   async retry(fn) { let last; for (let i = 0; i < 5; i++) { try { return await fn(); } catch (e) { last = e; await new Promise((r) => setTimeout(r, 250 * 2 ** i)); } } throw last; }
-  async getAccount(address) { if (globalThis.process?.env?.TERRARIUM_DEBUG && this._caches.account.get(address) === undefined) console.log('[remote] account', address.toString(), new Error().stack.split('\n').slice(2, 7).map((l) => l.trim()).join(' <- ')); const a = await this.retry(() => super.getAccount(address)); this.remote.accounts.set(address.toString(), a ?? null); return a; }
-  async getCode(address) { const c = await this.retry(() => super.getCode(address)); this.remote.code.set(address.toString(), c); return c; }
-  async getStorage(address, key) { if (globalThis.process?.env?.TERRARIUM_DEBUG && this._caches.storage.get(address, key) === undefined) console.log('[remote] storage', address.toString(), bytesToHex(key)); const v = await this.retry(() => super.getStorage(address, key)); this.remote.storage.set(`${address.toString()}_${bytesToHex(key)}`, v); return v; }
+  async getAccount(address) { if (this.offline && this._caches.account.get(address) === undefined) this.miss('account', address.toString()); if (globalThis.process?.env?.TERRARIUM_DEBUG && this._caches.account.get(address) === undefined) console.log('[remote] account', address.toString(), new Error().stack.split('\n').slice(2, 7).map((l) => l.trim()).join(' <- ')); const a = await this.retry(() => super.getAccount(address)); this.remote.accounts.set(address.toString(), a ?? null); return a; }
+  /** an account the cache knows does not exist has no code and no storage: answer without a round trip (the two engines
+   *  ask different questions about such addresses — revm loads the account, ethereumjs the code — and a fixture recorded
+   *  with one must serve the other) */
+  knownAbsent(address) { const e = this._caches.account.get(address); return e !== undefined && e.accountRLP === undefined; }
+  async getCode(address) { if (this.knownAbsent(address)) return new Uint8Array(); if (this.offline && this._caches.code.get(address) === undefined) this.miss('code', address.toString()); const c = await this.retry(() => super.getCode(address)); this.remote.code.set(address.toString(), c); return c; }
+  async getStorage(address, key) { if (this.knownAbsent(address) && this._caches.storage.get(address, key) === undefined) return new Uint8Array(); if (this.offline && this._caches.storage.get(address, key) === undefined) this.miss('storage', `${address.toString()}:${bytesToHex(key)}`); if (globalThis.process?.env?.TERRARIUM_DEBUG && this._caches.storage.get(address, key) === undefined) console.log('[remote] storage', address.toString(), bytesToHex(key)); const v = await this.retry(() => super.getStorage(address, key)); this.remote.storage.set(`${address.toString()}_${bytesToHex(key)}`, v); return v; }
 }
 
 const STATE_CHANGING = new Set(['eth_sendTransaction', 'eth_sendRawTransaction', 'evm_mine', 'anvil_mine', 'hardhat_mine', 'evm_setNextBlockTimestamp', 'anvil_setNextBlockTimestamp', 'evm_increaseTime', 'anvil_increaseTime', 'evm_setAutomine', 'anvil_setAutomine', 'anvil_setBalance', 'hardhat_setBalance', 'anvil_setCode', 'hardhat_setCode', 'anvil_setNonce', 'hardhat_setNonce', 'anvil_setStorageAt', 'hardhat_setStorageAt', 'anvil_impersonateAccount', 'hardhat_impersonateAccount', 'anvil_stopImpersonatingAccount', 'hardhat_stopImpersonatingAccount', 'anvil_setNextBlockBaseFeePerGas', 'hardhat_setNextBlockBaseFeePerGas', 'sim_deal', 'sim_setState']);
@@ -78,6 +85,8 @@ const SIGNING_METHODS = new Set(['eth_sendTransaction', 'personal_sign', 'eth_si
 /** EIP-1193 / JSON-RPC error: { code, message, data }. It extends viem's BaseError on purpose: viem passes its own
  *  error classes through untouched (like the errors its http transport raises), while a foreign error with an
  *  unknown code is wrapped as "unknown" and retried three times with backoff — a full second per reverted estimate. */
+export class OfflineStateError extends Error { constructor(m) { super(m); this.name = 'OfflineStateError'; } }
+
 class RpcError extends ViemBaseError {
   constructor(code, message, data) { super(message, { name: 'RpcError', details: message }); this.code = code; this.data = data; }
 }
@@ -140,7 +149,7 @@ export async function createTerrarium(opts = {}) {
   // trie (remote state is unknown), so it also reports the placeholder.
   const stateMode = opts.fork ? 'rpc' : (opts.state ?? 'merkle');
   const stateManager = opts.fork
-    ? new RecordingRPCStateManager({ provider: opts.fork.url, blockTag: BigInt(opts.fork.blockNumber), common })
+    ? Object.assign(new RecordingRPCStateManager({ provider: opts.fork.url ?? 'http://127.0.0.1:9/offline', blockTag: BigInt(opts.fork.blockNumber), common }), { offline: !!opts.fork.offline })
     : stateMode === 'merkle' ? new MerkleStateManager({ common }) : new SimpleStateManager({ common });
 
   const customPrecompiles = [];
@@ -529,7 +538,9 @@ export async function createTerrarium(opts = {}) {
   const eip1193 = {
     on(ev, fn) { if (!emitter.has(ev)) emitter.set(ev, new Set()); emitter.get(ev).add(fn); return eip1193; },
     removeListener(ev, fn) { emitter.get(ev)?.delete(fn); return eip1193; },
-    request(args) { return walletGate(args.method).then(() => exclusive(() => handle(args))); },
+    // extension methods (terrarium_*, from scenarios) run OUTSIDE the state lock: they orchestrate other RPC calls, each of
+    // which takes the lock itself. Running them inside would deadlock on their first inner request.
+    request(args) { const ext = extensions.get(args.method); if (ext) return Promise.resolve().then(() => ext(...(args.params ?? []))); return walletGate(args.method).then(() => exclusive(() => handle(args))); },
   };
   /** The same chain seen through a node RPC instead of a wallet: no accounts, no signing. What a dapp's read
    *  transport talks to in production, so reads and writes can be tested as two different endpoints. */
@@ -538,6 +549,7 @@ export async function createTerrarium(opts = {}) {
     request(args) {
       if (args.method === 'eth_accounts') return Promise.resolve([]);
       if (WALLET_METHODS.has(args.method)) return Promise.reject(new RpcError(4100, `${args.method}: this endpoint is a node, not a wallet`));
+      const ext = extensions.get(args.method); if (ext) return Promise.resolve().then(() => ext(...(args.params ?? [])));
       return exclusive(() => handle(args));
     },
   };
@@ -613,13 +625,14 @@ export async function createTerrarium(opts = {}) {
 
   // ---- snapshots ------------------------------------------------------------------------------------
   const snapshots = [];
-  async function snapshot() { await vm.stateManager.checkpoint(); const id = hex(snapshots.length + 1); snapshots.push({ id, blocksLen: blocks.length, journalLen: journal.length }); return id; }
+  async function snapshot() { await vm.stateManager.checkpoint(); const id = hex(snapshots.length + 1); snapshots.push({ id, blocksLen: blocks.length, journalLen: journal.length, timeOffset, nextTimestamp, baseFee }); return id; }
   /** Roll back EVM state AND everything that describes it: blocks, receipts, the journal, filter cursors, the dump. */
   async function revertTo(id) {
     const i = snapshots.findIndex((s) => s.id === id); if (i < 0) return false;
     let target;
     while (snapshots.length > i) { target = snapshots.pop(); await vm.stateManager.revert(); }
     blocks.length = target.blocksLen; journal.length = target.journalLen; pending.length = 0;
+    timeOffset = target.timeOffset; nextTimestamp = target.nextTimestamp; baseFee = target.baseFee;   // the clock is state too
     const head = latest().number;
     for (const [h, t] of txs) if (!t.receipt || hexToBigInt(t.receipt.blockNumber) > head) txs.delete(h);
     for (const fl of filters.values()) if (fl.cursor > head + 1n) fl.cursor = head + 1n;
@@ -767,15 +780,19 @@ export async function createTerrarium(opts = {}) {
     clearTimeout(persistTimer);
     persistTimer = setTimeout(() => exclusive(async () => persister.setItem(persistKey, JSON.stringify(await dumpState()))).catch((e) => console.warn('terrarium persist failed', e)), opts.persist?.debounceMs ?? 50);
   }
+  let restoredFromPersistence = false;
   if (opts.persist) {
     persister = opts.persist.storage; persistKey = opts.persist.key ?? `terrarium:${chainId}`;
     const saved = await persister.getItem(persistKey);
-    if (saved) await loadState(typeof saved === 'string' ? JSON.parse(saved) : saved);
-  } else if (opts.restore) { await loadState(opts.restore); }
+    if (saved) { await loadState(typeof saved === 'string' ? JSON.parse(saved) : saved); restoredFromPersistence = true; }
+  }
+  if (!restoredFromPersistence && opts.restore) await loadState(opts.restore);   // a recorded fixture as the baseline
 
   // ---- public sim API (what a test / storybook / dev toolbar would use) ------------------------
   const sim = {
-    provider: eip1193, node: nodeProvider, vm, accounts, chainId, seed, random, wallet: walletKnobs, engine, stats,
+    provider: eip1193, node: nodeProvider, vm, accounts, chainId, seed, random, wallet: walletKnobs, engine, stats, restoredFromPersistence,
+    /** offline fork mode: every state read the fixture could not answer (empty when the fixture is complete) */
+    get offlineMisses() { return vm.stateManager.misses ? vm.stateManager.misses.slice() : []; },
     /** Register a scenario-level RPC method (e.g. terrarium_bot) so a dev bar can drive it through the provider alone. */
     addMethod(name, fn) { extensions.set(name, fn); },
     now: () => now(),

@@ -10,7 +10,12 @@ export async function runScenario(config: ScenarioConfig) {
   const chainId = config.chainId ?? 31337;
   const key = config.persist === false ? null : (config.persist ?? 'default');
   const storage = key ? indexedDBStorage('terrarium') : null;
-  const sim: any = await createTerrarium({ chainId, seed: config.seed, hardfork: config.hardfork, engine: config.engine ?? 'revm', state: config.state, gasEstimation: config.gasEstimation, wallet: config.wallet, persist: storage ? { storage, key } : undefined });
+  const firstBoot = storage ? (await storage.getItem(key!)) === null : true;
+  const restore = typeof config.restore === 'function' ? await config.restore() : config.restore;
+  const bootWall = Math.floor(Date.now() / 1000);
+  const anchor = config.clock === 'recording' ? Number(BigInt(restore?.chain?.blocks?.at(-1)?.timestamp ?? bootWall)) : null;
+  const clock = typeof config.clock === 'number' ? () => config.clock as number : anchor !== null ? () => anchor + (Math.floor(Date.now() / 1000) - bootWall) : undefined;
+  const sim: any = await createTerrarium({ chainId, seed: config.seed, hardfork: config.hardfork, engine: config.engine ?? 'revm', state: config.state, gasEstimation: config.gasEstimation, wallet: config.wallet, fork: config.fork, restore, clock, persist: storage ? { storage, key } : undefined });
   const chain = defineChain({ id: chainId, name: 'Terrarium', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: { default: { http: [] } } });
   const pub = createPublicClient({ chain, transport: custom(sim.provider), pollingInterval: 20 });
   const rpc = (method: string, params: unknown[] = []) => sim.provider.request({ method, params });
@@ -22,6 +27,7 @@ export async function runScenario(config: ScenarioConfig) {
     deadline: (seconds = 3600) => sim.now() + BigInt(seconds),
     random: () => sim.random(),
     fresh: sim.blockNumber === 0n,
+    firstBoot,
     codeAt: async (a) => (await rpc('eth_getCode', [a, 'latest'])) as Hex,
     install: async (fixture) => { for (const c of Object.values(fixture.contracts)) if ((await ctx.codeAt(c.address as Address)) === '0x') await rpc('anvil_setCode', [c.address, c.code]); },
     state: {},
@@ -49,7 +55,7 @@ export async function runScenario(config: ScenarioConfig) {
 
   // ---- generic controls, reachable through the provider like any RPC method -----------------------------------
   sim.addMethod('terrarium_actors', async (on?: boolean) => { await actors.toggle(on ?? !actors.enabled); return actors.enabled; });
-  sim.addMethod('terrarium_status', async () => ({ chainId, engine: sim.engine, block: toHex(sim.blockNumber), accounts: ctx.accounts, actors: actors.enabled, actorsLabel: config.actorsLabel ?? 'Actors', hasActors: (config.actors?.length ?? 0) > 0, wallet: { ...sim.wallet }, ...(await config.status?.(ctx)) }));
+  sim.addMethod('terrarium_status', async () => ({ chainId, engine: sim.engine, block: toHex(sim.blockNumber), accounts: ctx.accounts, actors: actors.enabled, actorsLabel: config.actorsLabel ?? 'Actors', hasActors: (config.actors?.length ?? 0) > 0, wallet: { ...sim.wallet }, controls: config.controls ?? [], fork: config.fork ? { blockNumber: config.fork.blockNumber, offline: !!config.fork.offline, misses: sim.offlineMisses.length } : null, ...(await config.status?.(ctx)) }));
   sim.addMethod('terrarium_reset', async () => { await actors.toggle(false); sim.stop(); await storage?.clear(); return true; });
   for (const [name, fn] of Object.entries(config.methods ?? {})) sim.addMethod(name, (...args: any[]) => fn(ctx, ...args));
 

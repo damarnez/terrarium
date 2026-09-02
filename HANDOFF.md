@@ -136,3 +136,17 @@ fork replay. Verified: `npm run e2e`, `npm run test:uniswap`, `npm run test:fork
   derives deadlines from it. Rule recorded in CLAUDE.md and the tutorial.
 - Where things stand: all suites green (typecheck, e2e on the wasm bundle, test:uniswap on both engines incl. verifiable
   blocks + RPC parity, test:fork offline on both engines). Repo: github.com/damarnez/terrarium, branch main.
+
+## 10. Fifth pass (2 Sep 2026, evening) — integration improvements + Aave and Euler examples
+- Integration: `fork.offline` (misses throw `OfflineStateError`, listed in `sim.offlineMisses`, shown in the dev bar),
+  `restore` as a baseline under `persist`, scenario `fork`/`restore`/`clock`/`controls`/`firstBoot`, dev-bar buttons from
+  the scenario, `build-contracts.mjs [dir] [out]`, npm workspaces for `examples/*`.
+- `examples/aave`: real Aave V3 Pool/aTokens/oracle from a recorded mainnet fork; health factor UI-vs-Pool check; ETH price
+  control via `FixedPriceFeed` installed at the Chainlink source. `examples/euler`: EVK vaults + EVC; deposit, enable
+  collateral/controller, borrow; risk-adjusted liquidity. Both: `record.mjs` (fork → snapshot → exercise → revert → dump),
+  offline `test.mjs` on both engines. All PASS.
+- Engine fixes found by the examples: snapshots restore the chain clock (revert had leaked an hour of `evm_increaseTime`
+  into a fixture); known-absent accounts answer code/storage locally (ethereumjs asks for code where revm asks for the
+  account, so a fixture recorded with one now serves the other).
+- Learned: forked oracles rot. Euler's Chainlink adapters revert `PriceOracle_TooStale` an hour past the recorded round;
+  `clock: 'recording'` keeps fixtures usable, and "+1 hour" in the dev bar shows the real failure mode.

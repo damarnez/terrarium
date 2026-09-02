@@ -43,7 +43,8 @@ export function mountDevBar(provider: Provider) {
   const bReset = btn('Reset pond', 'reset', 'Wipe the chain and redeploy everything', async () => { await rpc('terrarium_reset'); location.reload(); });
   bReset.classList.add('danger');
 
-  bar.append(el('<span class="tag">Terrarium</span>'), info, el('<span class="spacer"></span>'),
+  const controls = el('<span class="controls" style="display:contents"></span>'); let controlsKey = '';
+  bar.append(el('<span class="tag">Terrarium</span>'), info, el('<span class="spacer"></span>'), controls,
     btn('Mine a block', 'mine', 'Mine one empty block', () => rpc('evm_mine')),
     btn('+1 hour', 'plus-hour', 'Move the chain clock forward one hour', async () => { await rpc('evm_increaseTime', [3600]); await rpc('evm_mine'); }),
     bMining, bSnap, bActors, bReject, bLatency, bLag, bReset);
@@ -54,7 +55,9 @@ export function mountDevBar(provider: Provider) {
     const s = await rpc('terrarium_status').catch(() => null); if (!s) return;
     info.querySelector('[data-f=chain]')!.textContent = String(s.chainId);
     info.querySelector('[data-f=block]')!.textContent = String(parseInt(s.block, 16));
-    info.querySelector('[data-f=engine]')!.textContent = s.engine === 'revm' ? 'revm/wasm' : 'ethereumjs';
+    info.querySelector('[data-f=engine]')!.textContent = (s.engine === 'revm' ? 'revm/wasm' : 'ethereumjs') + (s.fork ? ` · fork @${s.fork.blockNumber}${s.fork.offline ? ' offline' : ''}${s.fork.misses ? ` · ${s.fork.misses} MISSES` : ''}` : '');
+    const ck = JSON.stringify(s.controls ?? []);
+    if (ck !== controlsKey) { controlsKey = ck; controls.replaceChildren(...(s.controls ?? []).map((c: any, i: number) => btn(c.label, `control-${i}`, c.title ?? c.method, () => rpc(c.method, c.params ?? [])))); }
     bActors.hidden = !s.hasActors; bActors.textContent = `${s.actorsLabel} ${s.actors ? 'on' : 'off'}`; bActors.classList.toggle('on', s.actors);
     bReject.textContent = s.wallet.rejectNext > 0 ? `Reject next tx · armed (${s.wallet.rejectNext})` : 'Reject next tx'; bReject.classList.toggle('armed', s.wallet.rejectNext > 0);
     bLatency.textContent = s.wallet.latencyMs ? `Wallet: ${s.wallet.latencyMs / 1000}s delay` : 'Wallet: instant'; bLatency.classList.toggle('on', !!s.wallet.latencyMs);

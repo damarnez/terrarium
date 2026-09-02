@@ -3,6 +3,9 @@ dist
 dist-terrarium
 .terrarium
 contracts/out
+examples/*/contracts/out
+examples/*/dist
+examples/*/.terrarium
 e2e/*.png
 .DS_Store
 packages/terrarium-evm/target

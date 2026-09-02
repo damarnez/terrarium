@@ -4,8 +4,33 @@
     {
       "name": "frogpond-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 5173
+    },
+    {
+      "name": "aave-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "example-aave"
+      ],
+      "port": 5174
+    },
+    {
+      "name": "euler-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "example-euler"
+      ],
+      "port": 5175
     }
   ]
 }

@@ -20,8 +20,8 @@
 | `seed` | random | seed for `sim.random()` |
 | `wallet` | `{ rejectNext: 0, latencyMs: 0, receiptLagMs: 0 }` | wallet realism knobs, see `terrarium_setWallet` |
 | `persist` | none | `{ storage, key?, debounceMs?, maxTxBlocks? }`; `storage` has async `getItem/setItem` (`indexedDBStorage()`, `localStorage`) |
-| `restore` | none | a dump from `sim.dumpState()` to start from |
-| `fork` | none | `{ url, blockNumber }`: read remote state lazily from a node; every read is recorded into the dump |
+| `restore` | none | a dump from `sim.dumpState()` to start from; with `persist`, it is the baseline used only when nothing was persisted yet |
+| `fork` | none | `{ url?, blockNumber, offline? }`: read remote state lazily from a node; every read is recorded into the dump. `offline: true`: no network; a read the fixture cannot answer throws `OfflineStateError` and is listed in `sim.offlineMisses` |
 | `methods` | `{}` | extra RPC methods `{ name: (...params) => result }` |
 
 ### `sim`
@@ -34,7 +34,7 @@
 | `chainId`, `seed`, `random()`, `now()`, `blockNumber` | as named; `now()` is the chain clock in seconds (bigint) |
 | `engine`, `stats` | the active engine; for revm `{ runs, rounds, wasmMs }` (rounds > runs means state was fetched and re-run) |
 | `wallet` | the live wallet knobs object |
-| `mine(n)`, `snapshot()`, `revert(id)` | mining and snapshots (snapshots roll back blocks, receipts, journal, filters, dump) |
+| `mine(n)`, `snapshot()`, `revert(id)` | mining and snapshots (snapshots roll back state, blocks, receipts, journal, filters, the chain clock/base fee, and the dump) |
 | `deal(token, holder, amount, { adjustTotalSupply })` | set any ERC20 balance (slot found by watching SLOADs; proxies work) |
 | `setState(address, storageLayout, { variable: value, mapping: { key: value } })` | write your contract's storage by variable name |
 | `slotFromLayout(layout, path)` | compute a slot from a solc storageLayout |
@@ -68,7 +68,10 @@ other tx. `test/uniswap-v2.mjs` recomputes all four from the RPC output for ever
 | field | meaning |
 |---|---|
 | `chainId`, `seed`, `hardfork`, `engine` (default `'revm'`), `state`, `gasEstimation`, `wallet` | passed to `createTerrarium` |
-| `persist` | IndexedDB key (default `'default'`), or `false` for in-memory |
+| `persist` | IndexedDB key (default `'default'`), or `false` for in-memory. Key it by fixture (`\`aave-${fixture.blockNumber}\``) so a re-recorded fixture starts fresh |
+| `fork`, `restore` | a forked chain (`{ url?, blockNumber, offline? }`) and/or a recorded dump as the baseline. Typical offline example: `fork: { blockNumber, offline: true }, restore: fixture.dump` |
+| `clock` | `'wall'` (default), `'recording'` (wall clock re-based to the fixture's last block: oracles with staleness checks keep working), or a fixed number of seconds |
+| `controls` | `{ label, method, params?, title? }[]`: extra dev-bar buttons calling your `methods` (or any RPC) |
 | `setup(ctx)` | runs on every boot. `ctx.fresh` is true only when the chain has no blocks yet |
 | `actors` | `{ name?, every?: ms, on?: filter \| (ctx) => filter, run(ctx, log?) }[]`; toggled together, off by default, persisted |
 | `actorsLabel` | dev bar label for the toggle |
@@ -77,7 +80,16 @@ other tx. `test/uniswap-v2.mjs` recomputes all four from the RPC output for ever
 
 `ctx`: `sim`, `chainId`, `accounts`, `rpc(method, params)`, `pub` (viem public client), `wallet(account)` (viem wallet
 client signing with the sim's keys), `wait(hashOrPromise)`, `deadline(seconds = 3600)` (chain clock), `random()`,
-`fresh`, `codeAt(address)`, `install(fixture)`, `state` (free-form bag).
+`fresh` (no blocks yet), `firstBoot` (nothing persisted yet, even if a fixture was restored), `codeAt(address)`,
+`install(fixture)`, `state` (free-form bag).
+
+### Recording a protocol (the examples' recipe)
+1. `createTerrarium({ fork: { url, blockNumber } })` on a Node script; `deal` the user its tokens; `sim.snapshot()`.
+2. Exercise every path the UI will take, including the view calls it polls and time passing: everything read is recorded.
+3. `sim.revert(snapshot)` (the user's position is gone, the recordings stay), `sim.dumpState()` → fixture JSON.
+4. Scenario: `fork: { blockNumber, offline: true }, restore: fixture.dump, clock: 'recording'`. A miss shows up in the dev
+   bar as `N MISSES` and in `sim.offlineMisses`: warm that read in the recorder and re-record.
+See `examples/aave/record.mjs` and `examples/euler/record.mjs`.
 
 ## Vite plugin  (`terrarium/vite`)
 `terrarium({ scenario?: 'terrarium.scenario.ts' })`. Generates `.terrarium/{inject,worker}.ts` (gitignore it) and

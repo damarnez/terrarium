@@ -30,6 +30,8 @@ export interface ScenarioContext {
   random(): number;
   /** true when the chain has no blocks yet (first boot, or after a reset): deploy and seed only then */
   fresh: boolean;
+  /** true when nothing was persisted yet (first boot or after a reset), even if a fixture was restored: seed the user once */
+  firstBoot: boolean;
   codeAt(address: Address): Promise<Hex>;
   /** put a fixture's bytecode at its addresses (skips contracts already present, so it is safe on every boot) */
   install(fixture: Fixture): Promise<void>;
@@ -57,6 +59,17 @@ export interface ScenarioConfig {
   engine?: 'revm' | 'js';
   /** 'merkle' (default): real stateRoot in every header. 'simple': flat maps, placeholder root. */
   state?: 'merkle' | 'simple';
+  /** fork a live chain: state is read lazily from `url` at `blockNumber` (and recorded). `offline: true` forbids the
+   *  network: reads the fixture cannot answer throw and are listed in sim.offlineMisses. */
+  fork?: { url?: string; blockNumber: number; offline?: boolean };
+  /** the chain clock. 'wall' (default): the wall clock. 'recording': the wall clock re-based to the restored fixture's last
+   *  block, so oracles with staleness checks keep working however long ago the fixture was recorded. A number: fixed seconds
+   *  (blocks then advance one second at a time, plus whatever evm_increaseTime adds). */
+  clock?: 'wall' | 'recording' | number;
+  /** a recorded dump (sim.dumpState(), e.g. from a fork recording) used as the baseline when nothing is persisted yet */
+  restore?: Record<string, any> | (() => Promise<Record<string, any>>);
+  /** extra buttons for the dev bar: each calls one of your `methods` (or any RPC method) with fixed params */
+  controls?: { label: string; method: string; params?: unknown[]; title?: string }[];
   /** 'exact' (geth-style estimation, default) or 'fast' (block gas limit, no estimation) */
   gasEstimation?: 'exact' | 'fast';
   /** how the wallet misbehaves, from the start (all changeable at runtime via terrarium_setWallet) */

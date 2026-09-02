@@ -25,6 +25,15 @@ frogs trade against you, one fades your swaps), make the wallet **reject** the n
 deliver receipts **late**. Reload the page: the chain is still there (IndexedDB, inside a Worker). **Reset pond**
 wipes it and redeploys.
 
+## More examples: real protocols, offline
+| example | what | run |
+|---|---|---|
+| [examples/aave](examples/aave/README.md) | Aave V3 mainnet Pool, aTokens, oracle: supply, borrow, health factor vs the UI's math, interest, a price shock via a feed installed at the Chainlink address | `npm run example:aave` |
+| [examples/euler](examples/euler/README.md) | Euler V2 mainnet vaults + EVC: deposit, enable collateral/controller, borrow, risk-adjusted liquidity, oracle staleness after time travel | `npm run example:euler` |
+
+Each is a recorded mainnet fork (`record.mjs` → `fixtures/*.json`, ≈0.5 MB) restored offline: no RPC at run time, and any
+read the fixture cannot answer is reported instead of fetched. `npm run test:examples` replays both on both engines.
+
 ## Your own protocol in four steps
 See [docs/tutorial-new-protocol.md](docs/tutorial-new-protocol.md): fetch the bytecode (or fork), write
 `terrarium.scenario.ts`, add the Vite plugin, run it headless. Every option and RPC method: [docs/api.md](docs/api.md).
@@ -63,6 +72,7 @@ npm run test:uniswap   # real Uniswap V2 on BOTH engines vs Anvil: tx hashes, re
                        # header hash / tx root / receipts root / bloom recomputed from RPC output; RPC parity table
 npm run test:fork      # offline replay of a recorded mainnet fork (real USDC proxy, real USDC/WETH pair) on both engines: new swaps, zero network
 npm run test:fork:record   # re-record that fixture against mainnet (needs network)
+npm run test:examples  # Aave + Euler offline replays on both engines (health factor vs UI math, interest, price shock, staleness)
 npm run build:wasm     # rebuild the wasm engine (Rust: rustup target add wasm32-unknown-unknown, cargo install wasm-bindgen-cli)
 ```
 The e2e covers: connect via the picker, approve + add liquidity, a deposit with no funds (the real router's

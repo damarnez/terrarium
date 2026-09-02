@@ -4,7 +4,7 @@
   "description": "Frogpond: an ordinary Uniswap V2 dapp, and the Terrarium that lets you click through it with no chain, no node and no extension",
   "main": "index.js",
   "scripts": {
-    "build:contracts": "node scripts/build-contracts.mjs",
+    "build:contracts": "node scripts/build-contracts.mjs contracts src/generated/contracts.ts && node scripts/build-contracts.mjs examples/aave/contracts examples/aave/src/generated/contracts.ts",
     "build:terrarium": "terrarium build",
     "dev": "vite",
     "build": "npm run build:contracts && vite build",
@@ -15,7 +15,12 @@
     "test:uniswap": "node test/uniswap-v2.mjs",
     "test:fork": "node test/fork-offline.mjs && TERRARIUM_ENGINE=revm node test/fork-offline.mjs",
     "test:fork:record": "node test/fork-record.mjs",
-    "build:wasm": "npm run build -w terrarium-evm"
+    "build:wasm": "npm run build -w terrarium-evm",
+    "example:aave": "npm run dev -w example-aave",
+    "example:euler": "npm run dev -w example-euler",
+    "record:aave": "node examples/aave/record.mjs",
+    "record:euler": "node examples/euler/record.mjs",
+    "test:examples": "node examples/aave/test.mjs && TERRARIUM_ENGINE=revm node examples/aave/test.mjs && node examples/euler/test.mjs && TERRARIUM_ENGINE=revm node examples/euler/test.mjs"
   },
   "keywords": [],
   "author": "",
@@ -39,6 +44,7 @@
     "vite": "^8.2.2"
   },
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "examples/*"
   ]
 }

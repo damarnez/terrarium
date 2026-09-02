@@ -1,0 +1,17 @@
+{
+  "name": "example-euler",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5175",
+    "build": "vite build",
+    "record": "node record.mjs",
+    "test": "node test.mjs && TERRARIUM_ENGINE=revm node test.mjs"
+  },
+  "dependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "viem": "^2.56.3",
+    "terrarium": "*"
+  }
+}

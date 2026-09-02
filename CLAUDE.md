@@ -22,7 +22,11 @@ Read HANDOFF.md first for the full story. This file is the short operating manua
   addresses, deploys PEPE, seeds the pair, declares the bot-frog actors.
 - **Frogpond** (`src/`): an ordinary dapp on Uniswap V2 (Router02 / Pair ABIs in `src/lib/uniswap.ts`). Configured by
   `.env`: chain id, router address, token address, optional read RPC. Vite + React 19 + TypeScript + viem 2.
-- **Contracts** (`contracts/PEPE.sol`), compiled by `scripts/build-contracts.mjs` into `src/generated/contracts.ts`.
+- **Contracts** (`contracts/PEPE.sol`), compiled by `scripts/build-contracts.mjs [dir] [out.ts]` into `src/generated/contracts.ts`.
+- **Examples** (`examples/aave`, `examples/euler`, npm workspaces): each is a recorded mainnet fork (`record.mjs` →
+  `fixtures/*.json`), an offline scenario (`fork: { offline: true }, restore, clock: 'recording'`), an ordinary dapp
+  (`src/`, `.env` addresses) and an offline replay test (`test.mjs`). Aave adds `contracts/FixedPriceFeed.sol` +
+  `terrarium_ethPrice` + dev-bar `controls`.
 
 ## Commands
 ```
@@ -36,6 +40,8 @@ npm run e2e:install          # once: Chromium for Playwright
 npm run e2e                  # plain build + injected terrarium, whole flow in headless Chromium (JSON + PASS/FAIL)
 npm run test:uniswap         # real Uniswap V2 in the Terrarium vs Anvil: byte-identical receipts + RPC parity (needs Foundry)
 npm run test:fork            # offline replay of the recorded mainnet fork fixture (test/fixtures/) on both engines; test:fork:record re-records
+npm run example:aave / example:euler   # the two protocol examples (ports 5174 / 5175); record:aave / record:euler re-record their fixtures (network)
+npm run test:examples        # offline replays of both examples on both engines
 npm run build:wasm           # rebuild packages/terrarium-evm/pkg (Rust: wasm32-unknown-unknown target + wasm-bindgen-cli 0.2.127); pkg is committed
 ```
 
@@ -70,6 +76,11 @@ npm run build:wasm           # rebuild packages/terrarium-evm/pkg (Rust: wasm32-
 - viem's `watchBlockNumber` ignores a head moving backwards; the dapp polls the head itself and reloads history when
   the number drops or the hash changes (`usePond.ts`).
 - Uniswap's `Swap.to` for token→ETH swaps is the router; the dapp resolves the tx sender for attribution.
+- Snapshots must capture the chain clock (`timeOffset`, `nextTimestamp`, `baseFee`): a recorder that time-travels and
+  reverts otherwise bakes the offset into the fixture.
+- Fork fixtures: a known-absent account answers code/storage locally (the two engines ask different questions about the
+  same address). Time travel past an oracle's heartbeat reverts with staleness errors (Euler); that is correct behaviour.
+- Fixture-backed scenarios key `persist` by the fixture's block number, or a re-recorded fixture never loads.
 
 ## Where things are
 - Tutorial: `docs/tutorial-new-protocol.md`. API reference (all options, sim members, RPC methods, scenario config,

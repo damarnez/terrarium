@@ -25,6 +25,9 @@
     "src",
     "packages/terrarium/src",
     "terrarium.scenario.ts",
-    "vite.config.ts"
+    "vite.config.ts",
+    "examples/*/src",
+    "examples/*/terrarium.scenario.ts",
+    "examples/*/vite.config.ts"
   ]
 }
