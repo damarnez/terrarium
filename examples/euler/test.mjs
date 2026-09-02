@@ -24,6 +24,8 @@ const tx = async (req) => { const r = await pub.waitForTransactionReceipt({ hash
 const out = { engine, restoredMs: Date.now() - t0 };
 
 const ltv = await read(eUsdc, vaultAbi, 'LTVBorrow', [eWeth]);
+out.startsClean = (await read(eWeth, vaultAbi, 'balanceOf', [user])) === 0n && (await read(evc, evcAbi, 'getControllers', [user])).length === 0;
+out.borrowWithoutCollateral = await tx({ address: eUsdc, abi: vaultAbi, functionName: 'borrow', args: [1_000n * 10n ** 6n, user] }).then(() => 'succeeded (bug)', () => 'reverted');   // E_ControllerDisabled
 await tx({ address: weth, abi: erc20Abi, functionName: 'approve', args: [eWeth, maxUint256] });
 await tx({ address: eWeth, abi: vaultAbi, functionName: 'deposit', args: [parseEther('10'), user] });
 await tx({ address: evc, abi: evcAbi, functionName: 'enableCollateral', args: [user, eWeth] });
@@ -56,5 +58,5 @@ await tx({ address: eWeth, abi: vaultAbi, functionName: 'withdraw', args: [maxW,
 out.closed = { debt: formatUnits(await read(eUsdc, vaultAbi, 'debtOf', [user]), 6), controllers: await read(evc, evcAbi, 'getControllers', [user]), weth: formatUnits(await read(weth, erc20Abi, 'balanceOf', [user]), 18) };
 out.networkAttempts = networkAttempts; out.offlineMisses = sim.offlineMisses; out.totalMs = Date.now() - t0;
 console.log(JSON.stringify(out, null, 2));
-const ok = out.matchesRecording && out.afterHour.debtGrew && out.closed.debt === '0' && out.closed.controllers.length === 0 && networkAttempts === 0 && out.offlineMisses.length === 0;
+const ok = out.startsClean && out.borrowWithoutCollateral === 'reverted' && out.matchesRecording && out.afterHour.debtGrew && out.closed.debt === '0' && out.closed.controllers.length === 0 && networkAttempts === 0 && out.offlineMisses.length === 0;
 console.log(ok ? '\nPASS' : '\nFAIL'); process.exit(ok ? 0 : 1);

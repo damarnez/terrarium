@@ -25,6 +25,8 @@ const clientHf = (a) => (a.debt === 0n ? Infinity : Number(a.collateral * a.liqT
 const out = { engine, restoredMs: Date.now() - t0 };
 
 out.startWeth = formatUnits(await read(weth, erc20Abi, 'balanceOf', [user]), 18);
+const a0 = await account(); out.startsClean = a0.collateral === 0n && a0.debt === 0n;   // the fixture has no position: borrowing needs collateral first
+out.borrowWithoutCollateral = await tx({ address: pool, abi: poolAbi, functionName: 'borrow', args: [usdc, 1_000n * 10n ** 6n, 2n, 0, user] }).then(() => 'succeeded (bug)', () => 'reverted');
 await tx({ address: weth, abi: erc20Abi, functionName: 'approve', args: [pool, maxUint256] });
 await tx({ address: pool, abi: poolAbi, functionName: 'supply', args: [weth, parseEther('10'), user, 0] });
 await tx({ address: pool, abi: poolAbi, functionName: 'borrow', args: [usdc, 5_000n * 10n ** 6n, 2n, 0, user] });
@@ -55,5 +57,5 @@ const a3 = await account();
 out.closed = { debtUsd: formatUnits(a3.debt, 8), collateralUsd: formatUnits(a3.collateral, 8), weth: formatUnits(await read(weth, erc20Abi, 'balanceOf', [user]), 18) };
 out.networkAttempts = networkAttempts; out.offlineMisses = sim.offlineMisses; out.totalMs = Date.now() - t0;
 console.log(JSON.stringify(out, null, 2));
-const ok = out.hfMatchesClientMath && out.hfMatchesRecording && out.afterHour.debtGrew && out.afterHour.aWethGrew && out.priceShock.oracleFollowsFeed && out.priceShock.roughlyHalved && out.priceShock.stillMatchesClientMath && a3.debt === 0n && networkAttempts === 0 && out.offlineMisses.length === 0;
+const ok = out.startsClean && out.borrowWithoutCollateral === 'reverted' && out.hfMatchesClientMath && out.hfMatchesRecording && out.afterHour.debtGrew && out.afterHour.aWethGrew && out.priceShock.oracleFollowsFeed && out.priceShock.roughlyHalved && out.priceShock.stillMatchesClientMath && a3.debt === 0n && networkAttempts === 0 && out.offlineMisses.length === 0;
 console.log(ok ? '\nPASS' : '\nFAIL'); process.exit(ok ? 0 : 1);
