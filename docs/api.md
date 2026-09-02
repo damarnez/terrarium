@@ -87,6 +87,23 @@ injects one module script into `index.html`. Disabled when `VITE_TERRARIUM=off` 
 - `terrarium build [--scenario file] [--out dir]`: one injectable classic script, Worker bundle embedded.
 - `terrarium fetch-code <name=0xaddress>... --rpc <url> [--out fixture.json]`: runtime bytecode fixture for `ctx.install`.
 
+## The wasm engine package (`terrarium-evm`)
+`packages/terrarium-evm`: revm 43 compiled to `wasm32-unknown-unknown` with wasm-bindgen (`--target web`), no C
+dependencies (k256 / ark / pure-Rust KZG fallbacks). `engine.js` drives it; you normally never call it directly.
+- `init({ module_or_path })` (default export): instantiate; bytes, URL or Response. `engine.js` passes bytes in Node and
+  lets the glue resolve `terrarium_evm_bg.wasm` next to itself in the browser (Vite asset; data URL in the standalone bundle).
+- `run(host, requestJson) → resultJson`. Request: `{ tx: { from, to|null, value, data, gasLimit, gasPrice, priorityFee?,
+  nonce?, txType? }, block: { number, timestamp, gasLimit, baseFee, coinbase?, prevRandao? }, cfg: { chainId, spec?,
+  skipBalance?, skipNonce?, skipBlockGasLimit?, noBaseFee?, skipEip3607?, traceSloads? } }` (all numbers hex strings).
+  Result: `{ success, reason, gasUsed, gasRefunded, output, created, logs: [{ address, topics, data }], state: [{ address,
+  deleted, balance, nonce, codeHash, code?, storage: [[slot, value]] }], sloads: [[address, slot]] }`.
+  Throws `"missing"` when the host threw `{ missing: true }` (state to fetch, then re-run) and `"invalid: ..."` for a tx a
+  node would refuse (nonce, funds).
+- `host`: `{ account(address) → null | { balance, nonce, codeHash, code }, storage(address, slot) → 32-byte hex,
+  blockHash(number) → hex }`, all synchronous. The engine's implementation is the state mirror in `engine.js`.
+- `version()`. `smoke.mjs` in the package is a minimal Node example (deploy PEPE, call, SLOAD trace).
+- Build: `npm run build:wasm` = `cargo build --release --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir pkg`.
+
 ## Injected page globals
 `window.terrarium = { provider, request(method, params) }`: the wallet's own global, like `window.ethereum`. For tests
 and the console, never for the dapp. The dev bar mounts as `#terrarium-devbar` with `data-testid`s: `block mine

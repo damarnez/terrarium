@@ -2,6 +2,14 @@
 
 *Investigation date: 2 Sep 2026. Companion code: `evmsim-poc/` (runnable proof of concept, measured numbers below come from it).*
 
+> **Status (end of 2 Sep 2026): historical.** This is the document that led to the repo. Since then the design moved on;
+> where they disagree, the code and [api.md](api.md) win. In particular: the "no WASM" verdict below was about
+> *transpiling Solidity*; the EVM itself now **is** WASM (revm, `packages/terrarium-evm`) behind the same interface, with
+> `@ethereumjs/vm` kept as the reference engine — the sync-state problem in §1 is solved by a checkpoint-aware state
+> mirror with miss-and-retry, not by JSPI. Appendix A describes the PoC API, not today's (`createTerrarium` options,
+> `sim` members and RPC methods are in api.md). Block headers are now sealed for real. The measured numbers in §5 are
+> the PoC's; current ones are in the README ("Engines and speed"). See HANDOFF.md §7–§9 for what changed and why.
+
 ---
 
 ## 0. Verdict in one page

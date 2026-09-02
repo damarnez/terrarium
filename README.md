@@ -16,7 +16,7 @@ Router02, Factory and WETH9), used as the working example.
 
 ## Quickstart
 ```bash
-npm install
+npm install            # Node 22+. No Rust needed: the wasm engine ships prebuilt in packages/terrarium-evm/pkg
 npm run dev            # http://localhost:5173 → "Connect wallet" → "Terrarium Wallet"
 ```
 Add liquidity, swap, remove liquidity through the real router. In the dark bar at the bottom: mine blocks, shift
@@ -41,6 +41,7 @@ See [docs/tutorial-new-protocol.md](docs/tutorial-new-protocol.md): fetch the by
                  │                       logs, cheatcodes, IndexedDB)         │
                  └───────────────────────────────────────────────────────────┘
 packages/terrarium/     the library: engine.js, scenario.ts, worker-runtime.ts, inject.ts, devbar.ts, vite-plugin.ts, bin/
+packages/terrarium-evm/ the wasm engine: revm 43 (Rust) → pkg/terrarium_evm_bg.wasm, driven by engine.js through a host interface
 terrarium.scenario.ts   the example scenario: real Uniswap V2 + PEPE + bot frogs     contracts/PEPE.sol ──solc──► src/generated/
 ```
 - **The dapp never imports the simulator.** `src/` is configured by `.env` (`VITE_CHAIN_ID`, `VITE_ROUTER_ADDRESS`,
@@ -58,9 +59,11 @@ terrarium.scenario.ts   the example scenario: real Uniswap V2 + PEPE + bot frogs
 ```bash
 npm run e2e:install    # once: Chromium for Playwright
 npm run e2e            # plain dapp build (VITE_TERRARIUM=off) + injected Terrarium, the whole flow in headless Chromium
-npm run test:uniswap   # real Uniswap V2 in the Terrarium vs Anvil: every tx hash, receipt, log, eth_call and revert byte-identical, + RPC parity table
-npm run test:fork      # offline replay of a recorded mainnet fork (real USDC proxy, real USDC/WETH pair): new swaps, zero network
+npm run test:uniswap   # real Uniswap V2 on BOTH engines vs Anvil: tx hashes, receipts, logs, calls, reverts byte-identical; every block's
+                       # header hash / tx root / receipts root / bloom recomputed from RPC output; RPC parity table
+npm run test:fork      # offline replay of a recorded mainnet fork (real USDC proxy, real USDC/WETH pair) on both engines: new swaps, zero network
 npm run test:fork:record   # re-record that fixture against mainnet (needs network)
+npm run build:wasm     # rebuild the wasm engine (Rust: rustup target add wasm32-unknown-unknown, cargo install wasm-bindgen-cli)
 ```
 The e2e covers: connect via the picker, approve + add liquidity, a deposit with no funds (the real router's
 `TransferHelper: TRANSFER_FROM_FAILED`, decoded), the wallet rejecting a signature (4001), a 2 s wallet delay with a
@@ -92,21 +95,31 @@ Two execution engines behind one interface, both verified byte for byte against 
 
 | engine | what | 14-tx Uniswap scenario incl. 14 gas estimations |
 |---|---|---|
-| `revm` (default) | revm 43 compiled to WebAssembly (`packages/terrarium-evm`, 1.5 MB wasm, no C deps) | 115 ms (28 ms inside the wasm) |
-| `js` | `@ethereumjs/vm`, the reference | 382 ms |
-| Anvil, native, for comparison | | 59 ms |
+| `revm` (default) | revm 43 compiled to WebAssembly (`packages/terrarium-evm`, 1.5 MB wasm, no C deps) | ≈110 ms (≈25 ms inside the wasm) |
+| `js` | `@ethereumjs/vm`, the reference | ≈350 ms |
+| Anvil, native, for comparison | | ≈50 ms |
 
 The wasm engine only executes; state, checkpoints, persistence and fork recording stay in JavaScript. revm reads state
 through a synchronous, checkpoint-aware mirror; anything the mirror has never seen is zero (local chain) or fetched
 and re-run (fork mode), so the same code path serves both. `mockContract` is JS-engine only for now.
 Rebuild the wasm with `npm run build:wasm` (needs `rustup target add wasm32-unknown-unknown` and `wasm-bindgen-cli`).
 
+## Two things a real chain hides that this one will show you
+- **Deadlines.** Derive them from the `pending` block (`getBlock({ blockTag: 'pending' })`), not from `latest` and not
+  from `Date.now()`. On an idle Terrarium the latest block can be hours old; with the dev bar the chain clock can be
+  ahead of the wall clock. The real Uniswap router answered `EXPIRED` to a deadline built from `latest`.
+- **Wallet errors.** viem retries "unknown" RPC errors three times with backoff. A provider that throws a plain object
+  for a revert costs a second per failed estimate; the Terrarium's errors extend viem's `BaseError` for that reason.
+
 ## Honest limits
 - Fork mode has no local state trie (remote state is unknown), so forked chains report a placeholder `stateRoot`
   (configurable). Everything else in the header is real and verifiable in every mode.
+- `mockContract` (JS handlers answering calls at an address) works on the `js` engine only for now.
 - No `eth_subscribe` push yet (viem polls, which works).
 
 ## Docs
-- `CLAUDE.md`: operating manual and hard rules (also read by Claude Code).
-- `HANDOFF.md`: the story: idea, investigation, decisions, verified numbers, next steps.
-- `docs/design-investigation.md`: the full investigation and design document.
+- [docs/tutorial-new-protocol.md](docs/tutorial-new-protocol.md): your protocol in four steps.
+- [docs/api.md](docs/api.md): every option, `sim` member, RPC method, scenario field, plugin option and CLI command.
+- [packages/terrarium/README.md](packages/terrarium/README.md), [packages/terrarium-evm/README.md](packages/terrarium-evm/README.md): the two packages.
+- `CLAUDE.md`: operating manual and hard rules (also read by Claude Code). `HANDOFF.md`: the story, pass by pass.
+- `docs/design-investigation.md`: the original investigation (Sep 2026). Historical: see its status note.

@@ -33,6 +33,7 @@ import { MyToken } from './src/generated/contracts';   // your own contracts, co
 export default defineScenario({
   chainId: 31337,
   seed: 1337,                 // reproducible actors
+  engine: 'revm',             // revm in WebAssembly (default); 'js' for the @ethereumjs/vm reference engine
   persist: 'my-dapp',         // IndexedDB key; the chain survives reloads
 
   async setup(ctx) {
@@ -83,6 +84,13 @@ await page.evaluate(() => window.terrarium.request('terrarium_setWallet', [{ rej
 ```
 `e2e/frogpond.e2e.mjs` is a complete example: connect, approvals, a deposit with no funds, a rejected signature, a
 slow wallet, swaps, snapshot and revert, reload, actors.
+
+## Two rules for the dapp side
+
+- Deadlines and anything time-based: read the **pending** block (`getBlock({ blockTag: 'pending' })`). `latest` can be hours
+  old on an idle chain and `Date.now()` is wrong once the dev bar shifts the clock.
+- Your dapp must not know the Terrarium exists: configure it with a chain id and addresses, discover wallets with
+  EIP-6963, and keep every test hook on the Terrarium side (`window.terrarium`, `terrarium_*` methods, the dev bar).
 
 ## Checking your numbers
 

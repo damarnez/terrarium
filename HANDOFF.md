@@ -58,7 +58,7 @@ and PASS:
 Design: light glass-and-moss palette (#F2F6F3 / #14231B / #1F6F5C / #E8C547 / #CFE7E0), Bricolage Grotesque,
 the chart is the hero, one control panel (Swap / Add liquidity / Remove), the dark bottom bar is the "glass".
 
-## 5. Next steps (in priority order)
+## 5. Next steps as of the MVP (superseded — see §7–§9 for what was actually done next)
 1. Run `npm install && npm run e2e:install && npm run e2e` on the Mac; open `npm run dev`. Confirm Google Fonts load
    (sandbox had no font access; system fallback was used in the screenshot).
 2. Extract `sim/terrarium.js` into a publishable package (`packages/terrarium`): TypeScript types, the RPC parity list
@@ -131,3 +131,8 @@ fork replay. Verified: `npm run e2e`, `npm run test:uniswap`, `npm run test:fork
   js 2.5 s → 382 ms, revm 115 ms (28 ms inside wasm), Anvil 59 ms.
 - Still JS-only: `mockContract`. Next: mocks that can emit/write (then port to revm via a host callback), HTTP mocking +
   indexer, fork warm-up/miss report, Aave example, tracing.
+- Found by simply running the frontend after an idle hour: the dapp derived deadlines from `latest` and the real router
+  said `EXPIRED`. `eth_getBlockByNumber('pending')` now returns the real next block (like geth/Anvil) and the dapp
+  derives deadlines from it. Rule recorded in CLAUDE.md and the tutorial.
+- Where things stand: all suites green (typecheck, e2e on the wasm bundle, test:uniswap on both engines incl. verifiable
+  blocks + RPC parity, test:fork offline on both engines). Repo: github.com/damarnez/terrarium, branch main.

@@ -35,7 +35,8 @@ npm run build:terrarium      # = npx terrarium build: standalone injectable dist
 npm run e2e:install          # once: Chromium for Playwright
 npm run e2e                  # plain build + injected terrarium, whole flow in headless Chromium (JSON + PASS/FAIL)
 npm run test:uniswap         # real Uniswap V2 in the Terrarium vs Anvil: byte-identical receipts + RPC parity (needs Foundry)
-npm run test:fork            # offline replay of the recorded mainnet fork fixture (test/fixtures/); test:fork:record re-records
+npm run test:fork            # offline replay of the recorded mainnet fork fixture (test/fixtures/) on both engines; test:fork:record re-records
+npm run build:wasm           # rebuild packages/terrarium-evm/pkg (Rust: wasm32-unknown-unknown target + wasm-bindgen-cli 0.2.127); pkg is committed
 ```
 
 ## Hard rules (keep these)
