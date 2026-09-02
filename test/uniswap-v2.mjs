@@ -230,8 +230,10 @@ try {
       const anvilMs = Date.now() - t1;
       const b = reference.out;
 
+      // same genesis timestamp as Anvil's (the injectable clock), so block 0 compares equal whatever second we boot in
+      const genesisTs = Number((await anvil.raw('eth_getBlockByNumber', ['0x0', false])).timestamp);
       const t0 = Date.now();
-      const sim = await createTerrarium({ chainId: 31337, engine });
+      const sim = await createTerrarium({ chainId: 31337, engine, clock: () => genesisTs });
       const bootMs = Date.now() - t0;
       const terrarium = await runScenario((method, params) => sim.provider.request({ method, params }), custom(sim.provider));
       const terrariumMs = Date.now() - t0 - bootMs;
