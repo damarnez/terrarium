@@ -16,7 +16,7 @@ export interface Fixture { contracts: Record<string, { address: string; code: st
 export interface LogFilter { address?: Address | Address[]; topics?: (Hex | Hex[] | null)[] }
 
 export interface ScenarioContext {
-  /** the engine itself: sim.deal, sim.setState, sim.sendAs, sim.onLog, sim.mockContract, sim.snapshot ... */
+  /** the engine itself: sim.deal, sim.setState, sim.sendAs, sim.onLog, sim.snapshot ... */
   sim: any;
   chainId: number;
   /** the 10 Anvil test accounts, each with 10,000 ETH; the wallet exposes all of them */

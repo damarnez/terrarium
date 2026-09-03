@@ -234,6 +234,7 @@ RLP, transactions and block headers, not execution.
 ## ⚠️ Honest limits
 - Fork mode has no local state trie (remote state is unknown), so forked chains report a placeholder `stateRoot`
   (configurable). Everything else in the header is real and verifiable in every mode.
-- No JS-mocked contracts: `mockContract` left with the JS engine. Mock with bytecode instead: install a small contract at
-  the address (`anvil_setCode`) and set its variables (`setState`), as the Aave example does with its price feed.
+- No JavaScript-mocked contracts. You cannot tell the chain "return 1800 when `latestAnswer()` is called"; every call runs
+  bytecode. To fake a contract, install a small Solidity stand-in at the real address with `anvil_setCode` and set its
+  variables with `setState`, as the Aave example does with its price feed.
 - `eth_subscribe` pushes new heads only (as EIP-1193 `message` events); no log subscriptions. viem polls, which works.
