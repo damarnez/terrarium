@@ -23,6 +23,10 @@ Read HANDOFF.md first for the full story. This file is the short operating manua
 - **The example scenario** (`terrarium.scenario.ts` at the root): installs the REAL Uniswap V2 at the mainnet
   addresses, deploys PEPE, seeds the pair, declares the bot-frog actors, and answers the Uniswap V2 subgraph URL the
   dapp is configured with (`VITE_SUBGRAPH_URL`) from the chain's logs, with `Indexer: down / behind / live` controls.
+- **terrarium-react** (`packages/terrarium-react`, npm workspace): `<Terrarium worker={() => Worker}>` / `useTerrarium()` /
+  `<DevBar>` for React apps that cannot use the Vite plugin (Next.js, Storybook). Relies on `startTerrarium(worker, { devBar })`
+  + `stopTerrarium()` in `inject.ts`. It is the one sanctioned way a dapp's source may reference the simulator, behind a
+  build-time guard; Frogpond itself never uses it (rule 1). Guide: `docs/integrations.md`.
 - **Frogpond** (`src/`): an ordinary dapp on Uniswap V2 (Router02 / Pair ABIs in `src/lib/uniswap.ts`). Configured by
   `.env`: chain id, router address, token address, optional read RPC, subgraph URL (`src/lib/useIndexer.ts` +
   `src/components/Indexer.tsx` query it with plain fetch + GraphQL). Vite + React 19 + TypeScript + viem 2.
@@ -105,7 +109,7 @@ npm run build:wasm           # rebuild packages/terrarium-evm/pkg (Rust: wasm32-
 
 ## Where things are
 - Docs index: `docs/README.md`. Tutorial: `docs/tutorial-new-protocol.md` (project anatomy, the three sources of bytes, compiling contracts, CLI recipes, off-chain data step).
-  `docs/http-and-subgraphs.md` (HTTP routes guide), `docs/cookbook.md` (every feature, one example), `docs/roadmap.md` (open gaps, in order; update it when you close one). API reference (all options, sim members, RPC methods, scenario config,
+  `docs/http-and-subgraphs.md` (HTTP routes guide), `docs/integrations.md` (Vite / React / Next.js / Storybook / script tag), `docs/cookbook.md` (every feature, one example), `docs/roadmap.md` (open gaps, in order; update it when you close one). API reference (all options, sim members, RPC methods, scenario config,
   plugin, CLI, HTTP routes): `docs/api.md`. Keep all of them in sync with `packages/terrarium/src`; a new feature gets a cookbook recipe and an api.md row.
 - Engine API reference: `docs/design-investigation.md` Appendix A; state/persistence chapter §4b.
 - E2E expectations and numbers: `e2e/frogpond.e2e.mjs`. Unit suite: `test/unit/` (`helpers.mjs` boots a sim with a fixed

@@ -7,7 +7,14 @@ import { installHttpInterceptor, type WireRoute } from './http.ts';
 
 const ICON = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#1F6F5C"/><path d="M6 25.5c2-6 5.5-8.5 10-8.5s8 2.5 10 8.5" fill="none" stroke="#E8C547" stroke-width="2.5" stroke-linecap="round"/><path d="M16 17.5V9" stroke="#E8C547" stroke-width="2.5" stroke-linecap="round"/><path d="M16 12c0-4.5 3-7 7-7 0 4.5-3 7-7 7Z M16 14.5c0-4.5-3-7-7-7 0 4.5 3 7 7 7Z" fill="#E8C547"/></svg>');
 
-export function startTerrarium(worker: Worker) {
+export interface StartOptions {
+  /** mount the dev bar (default true); false for a host that draws its own controls */
+  devBar?: boolean;
+}
+let current: { worker: Worker; announce: () => void } | null = null;
+
+export function startTerrarium(worker: Worker, opts: StartOptions = {}) {
+  if (current) stopTerrarium();
   const provider = createWorkerProvider(worker);
   // the scenario's HTTP routes (subgraphs, APIs answered from the chain): the Worker announces them before it boots;
   // the RPC is the fallback. Until either arrives, the dapp's fetches wait; nothing else about them changes.
@@ -17,9 +24,21 @@ export function startTerrarium(worker: Worker) {
   const announce = () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail }));
   window.addEventListener('eip6963:requestProvider', announce);
   announce();
+  current = { worker, announce };
   // the wallet's own global (like window.ethereum) — for tests and the console, never for the dapp
   (window as any).terrarium = { provider, request: (method: string, params: unknown[] = []) => provider.request({ method, params }) };
-  const mount = () => mountDevBar(provider);
-  if (document.body) mount(); else document.addEventListener('DOMContentLoaded', mount);
+  if (opts.devBar !== false) { const mount = () => mountDevBar(provider); if (document.body) mount(); else document.addEventListener('DOMContentLoaded', mount); }
   return provider;
+}
+
+/** Undo startTerrarium: stop announcing, terminate the Worker, remove the dev bar and window.terrarium. Used by hosts that
+ *  mount and unmount (React StrictMode runs effects twice; a Storybook story unmounts). */
+export function stopTerrarium() {
+  if (!current) return;
+  window.removeEventListener('eip6963:requestProvider', current.announce);
+  current.worker.terminate();
+  current = null;
+  document.getElementById('terrarium-devbar')?.remove();
+  document.body?.style.removeProperty('padding-bottom');
+  delete (window as any).terrarium;
 }

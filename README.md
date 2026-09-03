@@ -96,7 +96,8 @@ the [cookbook](docs/cookbook.md) (every feature, one example) and the [API refer
 | 🕸️ [Off-chain data](docs/http-and-subgraphs.md) | subgraphs and APIs answered from the chain; indexer down / behind / slow |
 | 🍳 [Cookbook](docs/cookbook.md) | every feature, one paste-able example |
 | 📖 [API reference](docs/api.md) | every option, `sim` member, RPC method, scenario field, plugin option, CLI flag, dev-bar test id |
-| 📦 [terrarium](packages/terrarium/README.md) · [terrarium-evm](packages/terrarium-evm/README.md) | the two packages |
+| 🔌 [Integrations](docs/integrations.md) | Vite plugin, `terrarium-react` for Next.js / Remix / CRA / Storybook, a plain script tag |
+| 📦 [terrarium](packages/terrarium/README.md) · [terrarium-react](packages/terrarium-react/README.md) · [terrarium-evm](packages/terrarium-evm/README.md) | the library, the React mount, the wasm engine |
 | 🧭 [Roadmap](docs/roadmap.md) | what is not built yet, in order, and what is deliberately not planned |
 | 🛠️ [CLAUDE.md](CLAUDE.md) · [HANDOFF.md](HANDOFF.md) · [design investigation](docs/design-investigation.md) | operating manual and hard rules; the story pass by pass; the original investigation (historical) |
 
@@ -149,6 +150,7 @@ or compiled from your own Solidity). The Terrarium is injected from outside (the
 |---|---|
 | `packages/terrarium/` | the library: `engine.js` (the chain), `scenario.ts`, `worker-runtime.ts`, `http.ts`, `bridge.ts`, `inject.ts`, `devbar.ts`, `vite-plugin.ts`, `bin/terrarium.mjs` (CLI) |
 | `packages/terrarium-evm/` | the wasm engine: revm 43 compiled from Rust, driven by `engine.js` through a host interface; `pkg/` is committed, no Rust needed |
+| `packages/terrarium-react/` | `<Terrarium>`, `useTerrarium()`, `<DevBar>`: mount the Terrarium from a React tree when the Vite plugin is not an option (Next.js, Storybook) |
 | `terrarium.scenario.ts` | the example scenario: what the chain contains when the page loads, and how its subgraph answers |
 | `src/` | Frogpond, an ordinary dapp; `contracts/PEPE.sol` is compiled into `src/generated/` by `npm run build:contracts` |
 

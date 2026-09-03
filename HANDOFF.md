@@ -118,6 +118,8 @@ fork replay. Verified: `npm run e2e`, `npm run test:uniswap`, `npm run test:fork
   to the Worker (`terrarium_http`) where handlers / GraphQL resolvers answer from the chain. Frogpond answers the Uniswap
   V2 subgraph URL from its own Swap logs, with down / behind controls; the dapp consumes it with plain fetch
   (`src/lib/useIndexer.ts`). Docs: `docs/http-and-subgraphs.md`, `docs/cookbook.md`, `docs/README.md` (index).
+- `terrarium-react` (`packages/terrarium-react`): `<Terrarium worker>`, `useTerrarium`, `<DevBar>` for React apps off Vite;
+  `inject.ts` gained `{ devBar }` and `stopTerrarium()`. Docs: `docs/integrations.md`.
 - Docs: `docs/tutorial-new-protocol.md` (4 steps), `docs/api.md` (everything). Verified: typecheck, plain/injected/CLI
   builds, e2e, test:uniswap, test:fork all PASS.
 - Next (from the second analysis, as written then): HTTP mocking + in-Worker indexer (subgraph), mock contracts that can

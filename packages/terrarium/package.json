@@ -13,6 +13,7 @@
     "./scenario": "./src/scenario.ts",
     "./worker": "./src/worker-runtime.ts",
     "./inject": "./src/inject.ts",
+    "./devbar": "./src/devbar.ts",
     "./bridge": "./src/bridge.ts",
     "./http": "./src/http.ts",
     "./vite": "./src/vite-plugin.ts",

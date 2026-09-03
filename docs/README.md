@@ -10,6 +10,7 @@ flowchart LR
   readme["README<br/><i>what it is, quickstart,<br/>what you can put a UI through</i>"] --> tut["Tutorial<br/><i>project anatomy, where the bytes<br/>come from, four steps</i>"]
   tut --> http["Off-chain data<br/><i>APIs and subgraphs<br/>answered from the chain</i>"]
   tut --> cook["Cookbook<br/><i>every feature, one example</i>"]
+  tut --> integ["Integrations<br/><i>Vite, React, Next.js,<br/>Storybook, script tag</i>"]
   cook --> api["API reference<br/><i>every option, method, flag</i>"]
   http --> api
   tut --> ex["Examples<br/><i>Frogpond, Aave, Euler</i>"]
@@ -20,6 +21,7 @@ flowchart LR
 | 🏠 [README](../README.md) | first | what the Terrarium is and is not, the quickstart, the table of things a frontend gets wrong that a scenario can show |
 | 🧭 [Tutorial: your dapp against a new protocol](tutorial-new-protocol.md) | you are adding it to a project | the shape of a project folder by folder; the three sources of bytes (fetched code, a recorded fork, your own Solidity) and why you never compile Aave; compiling contracts; the four steps; troubleshooting |
 | 🕸️ [Off-chain data: APIs, subgraphs and indexers](http-and-subgraphs.md) | your dapp reads a subgraph or an API | how the dapp's `fetch` is answered from the chain, GraphQL resolvers, the failure modes (down, behind, slow), the Frogpond example |
+| 🔌 [Integrations](integrations.md) | your app is not on Vite, or you want the Terrarium in a Storybook or a deployed page | the Vite plugin, the `terrarium-react` component (Next.js, Remix, CRA, Storybook), the script tag; how to check the production bundle |
 | 🍳 [Cookbook](cookbook.md) | you know what you want the chain to do | one paste-able example per feature: money, storage, time, snapshots, actors, wallet failures, forks, persistence, status… |
 | 📖 [API reference](api.md) | you need the exact shape | every `createTerrarium` option, `sim` member, RPC method, scenario field, plugin option, CLI flag, dev-bar test id |
 | 🧭 [Roadmap](roadmap.md) | you wonder what is missing, or want to contribute | the known gaps and the features that would close them, in order, with sizes; what is deliberately not planned |

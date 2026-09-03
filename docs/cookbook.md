@@ -30,6 +30,7 @@ same RPC surface, so a recipe written for one works in the others with the obvio
 20. [The wallet vs the node view](#20-the-wallet-vs-the-node-view)
 21. [Randomness that replays](#21-randomness-that-replays)
 22. [Proving a block is real](#22-proving-a-block-is-real)
+23. [React without the Vite plugin](#23-react-without-the-vite-plugin)
 
 The rule behind all of them: **write leaf state, produce structural state.** Balances, allowances, an oracle answer,
 a config flag can be written directly. Pool reserves, positions, interest indexes, LP supply must be produced by real
@@ -310,3 +311,17 @@ const block = await pub.getBlock({ blockTag: 'latest', includeTransactions: true
 
 Blocks are sealed for real, so a client that verifies what it is told (a light client, a checker script) is satisfied.
 `npm run test:uniswap` runs the same scenario here and on Anvil and compares byte for byte.
+
+## 23. React without the Vite plugin
+
+```tsx
+// terrarium.worker.ts:  import scenario from './terrarium.scenario'; import { runScenario } from 'terrarium/worker'; runScenario(scenario);
+import { Terrarium, useTerrarium, DevBar } from 'terrarium-react';
+{import.meta.env.DEV && <Terrarium worker={() => new Worker(new URL('./terrarium.worker.ts', import.meta.url), { type: 'module' })} />}
+const provider = useTerrarium();                         // in a child: the wallet provider for your own dev tools (null until ready)
+<DevBar provider={provider} />                           // only the bar, over any provider answering terrarium_* methods
+```
+
+For Next.js, Remix, CRA and Storybook. Guard it with your bundler's development constant so production drops it, and check
+the bundle once. Prefer the Vite plugin when you can: it keeps the simulator out of your source entirely.
+[integrations.md](integrations.md) has the Next.js and Storybook recipes and the script-tag path for everything else.

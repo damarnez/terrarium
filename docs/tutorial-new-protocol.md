@@ -436,7 +436,13 @@ export default defineConfig({
 });
 ```
 
-Add `.terrarium/` to `.gitignore` (the plugin generates two small entry files there). Then:
+Add `.terrarium/` to `.gitignore` (the plugin generates two small entry files there).
+
+> [!NOTE]
+> Not on Vite? Next.js, Remix, CRA and Storybook mount the same thing from a React component (`terrarium-react`), and any
+> page at all can load the built script. Both paths, with their trade-offs: [integrations.md](integrations.md).
+
+Then:
 
 ```bash
 npm run dev

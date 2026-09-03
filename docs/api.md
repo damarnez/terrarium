@@ -5,7 +5,7 @@
 **Contents:** [createTerrarium](#createterrariumoptions--sim--terrarium--terrariumengine) · [sim](#sim) · [Verifiable blocks](#verifiable-blocks) ·
 [RPC surface](#rpc-surface-providerrequest-method-params-) · [defineScenario](#definescenarioconfig--terrariumscenario) · [HTTP routes](#http-routes-terrariumhttp) ·
 [Recording a protocol](#recording-a-protocol-the-examples-recipe) · [Vite plugin](#vite-plugin--terrariumvite) · [CLI](#cli--npx-terrarium) · [Bridge](#the-postmessage-bridge--terrariumbridge) ·
-[wasm engine](#the-wasm-engine-package-terrarium-evm) · [Injected page globals](#injected-page-globals) · [Tests](#tests)
+[wasm engine](#the-wasm-engine-package-terrarium-evm) · [Injected page globals](#injected-page-globals) · [terrarium-react](#terrarium-react) · [Tests](#tests)
 
 ## `createTerrarium(options)` → `sim`  (`terrarium` / `terrarium/engine`)
 
@@ -170,16 +170,34 @@ dependencies (k256 / ark / pure-Rust KZG fallbacks). `engine.js` drives it; you 
 - Build: `npm run build:wasm` = `cargo build --release --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir pkg`.
 
 ## Injected page globals
+`startTerrarium(worker, { devBar? })` from `terrarium/inject` wires a Worker up as the wallet, sets the globals below and
+mounts the dev bar (`devBar: false` skips it); it returns the provider. Starting again replaces the previous instance.
+`stopTerrarium()` undoes it: stops announcing, terminates the Worker, removes the dev bar and `window.terrarium`.
+`mountDevBar(provider)` from `terrarium/devbar` mounts only the bar over any provider answering the `terrarium_*` methods.
+
 `window.terrarium = { provider, request(method, params) }`: the wallet's own global, like `window.ethereum`. For tests
 and the console, never for the dapp. `window.fetch` is replaced by the HTTP interceptor when the scenario declares
 `http` routes (unmatched requests pass through to the original). The dev bar mounts as `<footer id="terrarium-devbar" data-testid="devbar">` with
 buttons carrying `data-testid`s: `block` (the head counter), `mine plus-hour mining snapshot actors reject-next
 wallet-latency receipt-lag reset`, and `control-<i>` for the scenario's `controls` in order.
 
+## `terrarium-react`
+A separate package (`packages/terrarium-react`, peer dependencies `react >= 18` and `terrarium`) for React projects that
+cannot use the Vite plugin. Guide with the Next.js and Storybook recipes: [integrations.md](integrations.md).
+
+| export | what |
+|---|---|
+| `<Terrarium worker={() => Worker} devBar? children?>` | on mount (browser only; a no-op in SSR) creates the Worker, calls `startTerrarium`, on unmount `stopTerrarium`; reuses a Terrarium already on the page; children get the provider through context |
+| `useTerrarium()` | the `WorkerProvider` (null until ready) |
+| `<DevBar provider>` | only the dev bar, mounted while the component is mounted |
+
+Your source references the simulator with this package; guard the element with a build-time constant
+(`import.meta.env.DEV`, `process.env.NODE_ENV !== 'production'`) and check the production bundle once.
+
 ## Tests
 `npm test` = `test:unit` (Node's test runner, `test/unit/*.test.mjs`, no network, no Foundry: chain, transactions,
 cheatcodes, state fabrication, logs and actors, wallet, persistence, fork mode with a local fake node, the wasm engine,
-the scenario runtime, HTTP routes (parser, Worker dispatch, page interceptor), the bridge, the Vite plugin, the CLI
-including a standalone build) + `test:fork` + `test:examples`.
+the scenario runtime, HTTP routes (parser, Worker dispatch, page interceptor), the bridge, the Vite plugin, `terrarium-react`
+(SSR inertness, start/stop of the inject entry), the CLI including a standalone build) + `test:fork` + `test:examples`.
 Separately: `test:uniswap` (differential vs Anvil, needs Foundry) and `e2e` (headless Chromium: the dev bar, IndexedDB
 persistence and the injected wallet, which have no Node equivalent).

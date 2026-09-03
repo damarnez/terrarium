@@ -24,6 +24,7 @@
   "include": [
     "src",
     "packages/terrarium/src",
+    "packages/terrarium-react/src",
     "terrarium.scenario.ts",
     "vite.config.ts",
     "examples/*/src",
