@@ -2,11 +2,11 @@
 
 ← [Docs index](README.md) · [Tutorial](tutorial-new-protocol.md) · [Cookbook](cookbook.md) · [API reference](api.md)
 
-**Contents:** [The problem](#the-problem) · [How it works](#how-it-works) · [Declaring routes](#declaring-routes) ·
-[Plain handlers](#plain-handlers-rest-apis) · [GraphQL resolvers](#graphql-resolvers-subgraphs) · [Failure modes](#failure-modes-down-behind-slow) ·
-[Worked example: Frogpond](#worked-example-frogpond) · [Testing](#testing) · [Limits](#limits-and-rules) · [Reference](#reference)
+**Contents:** [The problem](#-the-problem) · [How it works](#%EF%B8%8F-how-it-works) · [Declaring routes](#-declaring-routes) ·
+[Plain handlers](#-plain-handlers-rest-apis) · [GraphQL resolvers](#%EF%B8%8F-graphql-resolvers-subgraphs) · [Failure modes](#-failure-modes-down-behind-slow) ·
+[Worked example: Frogpond](#-worked-example-frogpond) · [Testing](#-testing) · [Limits](#-limits-and-rules) · [Reference](#-reference)
 
-## The problem
+## 🤔 The problem
 
 A frontend rarely reads the chain alone. It asks a subgraph for the last swaps and the 24 h volume, a price API for USD
 values, its own backend for a leaderboard or a list of positions. Inside the Terrarium the chain lives in the page, and
@@ -18,7 +18,7 @@ chain in the Worker. The dapp keeps sending the exact requests it sends in produ
 Nothing in `src/` changes. This is the same principle as the wallet: the dapp talks to what it would talk to on mainnet,
 and the Terrarium stands in for it from the outside.
 
-## How it works
+## 🗺️ How it works
 
 ```mermaid
 sequenceDiagram
@@ -56,7 +56,7 @@ Three things worth knowing about the mechanics:
   `ctx.pub`, call cheatcodes through `ctx.rpc`, and use whatever `setup()` left in `ctx.state`. A handler that throws
   produces a 500 with the message in the body and a console warning: the API failed, the way an API fails.
 
-## Declaring routes
+## 🧭 Declaring routes
 
 ```ts
 import { defineScenario, reply } from 'terrarium/scenario';
@@ -95,7 +95,7 @@ interface HttpRequest {
 }
 ```
 
-## Plain handlers (REST APIs)
+## 🧰 Plain handlers (REST APIs)
 
 Return what the API would return. A JSON-serialisable value becomes a `200 application/json` body (bigints are
 serialised as decimal strings, since JSON has no bigint). A string becomes `200 text/plain`. For anything else, status
@@ -119,7 +119,7 @@ Where the data comes from is up to you, and it should come from the chain: reser
 through `getContractEvents` or `eth_getLogs`, balances through `getBalance`. A handler that returns a constant is a
 mock; a handler that reads the chain is an indexer.
 
-## GraphQL resolvers (subgraphs)
+## 🕸️ GraphQL resolvers (subgraphs)
 
 Most dapps talk to at least one subgraph. Writing a GraphQL server for it is not the goal; answering the four queries
 your UI sends is. `graphql` gives you one resolver per top-level field. The runtime parses the operation the client
@@ -164,7 +164,7 @@ existing parsing code keeps working. The parser handles operations with names an
 aliases, nested argument objects and lists, enums, comments and directives. It does not expand fragments: a
 `...PairFields` at the top level is skipped; nested fragments do not matter because you decide the result shape.
 
-## Failure modes: down, behind, slow
+## 💥 Failure modes: down, behind, slow
 
 The point of owning the indexer is to make it misbehave on purpose. Real indexers go down, lag behind the chain, and
 answer slowly, and a frontend that only ever saw a healthy one has bugs waiting.
@@ -200,7 +200,7 @@ What each one teaches you about the UI:
 | **slow** | keep the last good data, show staleness | flicker to empty on every refetch; requests piling up |
 | **disagrees with the chain** (different numbers for the same thing) | trust the chain for anything that gates a transaction | a "max" button computed from indexer balances |
 
-## Worked example: Frogpond
+## 🐸 Worked example: Frogpond
 
 The example dapp at the root reads the Uniswap V2 subgraph for the pond's swap count, volume and the last five swaps
 (`src/lib/useIndexer.ts`, `src/components/Indexer.tsx`), configured by `VITE_SUBGRAPH_URL` in `.env`, which holds the
@@ -213,21 +213,27 @@ which is exactly what a production frontend should do.
 
 ```mermaid
 flowchart LR
-  env[".env<br/>VITE_SUBGRAPH_URL = the mainnet subgraph"]
-  hook["src/lib/useIndexer.ts<br/>POST { query, variables } on every new block"]
-  panel["src/components/Indexer.tsx<br/>count · volume · last swaps · lag / error"]
-  route["terrarium.scenario.ts → http<br/>match: VITE_SUBGRAPH_URL<br/>graphql: { pair, swaps }"]
-  chain["the chain in the Worker<br/>getReserves · Swap logs · block timestamps"]
-  env --> hook --> panel
-  hook -. "fetch, intercepted" .-> route --> chain
-  ctl["dev bar: Indexer down / behind / live<br/>terrarium_indexer"] --> route
+  subgraph dapp["🐸 the dapp · src/"]
+    direction TB
+    env["📄 .env<br/>VITE_SUBGRAPH_URL = the mainnet subgraph"] --> hook["src/lib/useIndexer.ts<br/>POST { query, variables }<br/>on every new block"] --> panel["src/components/Indexer.tsx<br/>count · volume · last swaps<br/>lag · outage"]
+  end
+  subgraph terr["🫙 the scenario · terrarium.scenario.ts"]
+    direction TB
+    route["http route<br/>match: VITE_SUBGRAPH_URL<br/>graphql: { pair, swaps }"] --> chain["⚙️ the chain in the Worker<br/>getReserves · Swap logs · timestamps"]
+    ctl["🎛️ dev bar<br/>Indexer: down · behind · live"] --> route
+  end
+  hook -. "fetch, intercepted" .-> route
+  classDef dapp fill:#eef3ff,stroke:#5b7bd5,color:#1b2a4a
+  classDef terr fill:#e6f2ee,stroke:#1f6f5c,color:#0f3a2e
+  class env,hook,panel dapp
+  class route,chain,ctl terr
 ```
 
 The e2e (`e2e/frogpond.e2e.mjs`) waits for the panel to list the swaps it just made, takes the indexer down from the
 dev bar and asserts the UI says "Indexer unavailable: HTTP 503", then brings it back. The dev bar's status line shows
 `N HTTP routes, M answered`.
 
-## Testing
+## ✅ Testing
 
 **From Playwright**, the route runs whenever the dapp fetches; you drive the failure modes through the dev bar buttons
 (`control-<i>`) or your `terrarium_*` method, and you can call a route directly to check its output:
@@ -243,16 +249,18 @@ JSON.parse(res.body).data.pair.txCount;                                  // what
 same way; `test/unit/http.test.mjs` does this, and also exercises the page side by installing the interceptor on a fake
 `fetch`. The parser is exported from `terrarium/http` (`parseGraphql`) if you want to unit-test a resolver's inputs.
 
-## Limits and rules
+## 📏 Limits and rules
 
 - **`fetch` only.** XMLHttpRequest and WebSocket are not intercepted. axios uses XHR in browsers by default; set
   `adapter: 'fetch'` (axios ≥ 1.7) or use a fetch-based client. GraphQL subscriptions over WebSocket are out of scope;
   poll instead, as the example does.
 - **Requests made before the route list arrives wait for it.** The Worker posts the list before booting the chain, so
   this is milliseconds, not the whole `setup()`.
-- **Do not intercept the chain.** RPC calls the dapp makes to a `VITE_RPC_URL` go through `fetch` too. Leave that URL
-  unmatched; the wallet provider already is the chain. Rewriting RPC responses is the one thing the project forbids
-  everywhere ("change EVM state, never RPC responses").
+> [!WARNING]
+> **Do not intercept the chain.** RPC calls the dapp makes to a `VITE_RPC_URL` go through `fetch` too. Leave that URL
+> unmatched; the wallet provider already is the chain. Rewriting RPC responses is the one thing the project forbids
+> everywhere ("change EVM state, never RPC responses").
+
 - **Compute from the chain, in the Worker.** A handler has `ctx`: `pub`, `sim`, `rpc`, `state`, `accounts`. It runs
   outside the state lock, so it may call any RPC method, including cheatcodes, but a handler that mutates the chain on
   a GET is a strange API; keep mutations in `methods`.
@@ -260,7 +268,7 @@ same way; `test/unit/http.test.mjs` does this, and also exercises the page side 
 - **Fragments are not expanded**, and there is no schema validation: a resolver answers what it answers. That is the
   intended trade: four queries answered honestly from the chain, not a GraphQL server.
 
-## Reference
+## 📖 Reference
 
 | where | what |
 |---|---|

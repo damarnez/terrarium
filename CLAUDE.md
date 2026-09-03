@@ -50,6 +50,7 @@ npm run test:uniswap         # real Uniswap V2 in the Terrarium vs Anvil: byte-i
 npm run test:fork            # offline replay of the recorded mainnet fork fixture (test/fixtures/); test:fork:record re-records
 npm run example:aave / example:euler   # the two protocol examples (ports 5174 / 5175); record:aave / record:euler re-record their fixtures (network)
 npm run test:examples        # offline replays of both examples
+node scripts/render-mermaid.mjs OUT_DIR README.md docs/*.md   # render every ```mermaid block to PNG (Playwright Chromium): check diagrams before committing docs
 npm run build:wasm           # rebuild packages/terrarium-evm/pkg (Rust: wasm32-unknown-unknown target + wasm-bindgen-cli 0.2.127); pkg is committed
 ```
 

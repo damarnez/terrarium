@@ -1,20 +1,44 @@
-# Terrarium
+<p align="center"><img src="public/frog.svg" width="72" alt=""></p>
+<h1 align="center">Terrarium</h1>
+<p align="center"><b>A complete EVM chain inside the page, presented to your dapp as a wallet.</b><br>
+Real bytecode execution (revm compiled to WebAssembly), real blocks, receipts, logs and reverts, byte-identical to Anvil.<br>
+No node process, no browser extension, no faucet. Your dapp does not know it is there.</p>
 
-A complete EVM chain that lives inside the page, presented to your dapp as a wallet. Real bytecode execution (revm
-compiled to WebAssembly), real, verifiable blocks, receipts, logs and reverts, byte-identical to Anvil. No node process,
-no browser extension, no faucet. Your dapp does not know it is there.
+<p align="center">
+<img alt="engine: revm 43 in WebAssembly" src="https://img.shields.io/badge/engine-revm%2043%20%C2%B7%20wasm-1f6f5c">
+<img alt="fidelity: byte-identical to Anvil" src="https://img.shields.io/badge/fidelity-byte--identical%20to%20Anvil-1f6f5c">
+<img alt="node 22+" src="https://img.shields.io/badge/node-%E2%89%A5%2022-e8c547">
+<img alt="tests: unit, fork, examples, e2e" src="https://img.shields.io/badge/tests-unit%20%C2%B7%20fork%20%C2%B7%20examples%20%C2%B7%20e2e-e8c547">
+<img alt="no network at test time" src="https://img.shields.io/badge/CI-offline-16513f">
+</p>
 
-Two things it is for that a local node cannot do:
+<p align="center">
+<a href="#-quickstart">Quickstart</a> ·
+<a href="#%EF%B8%8F-how-it-fits-together">How it works</a> ·
+<a href="#%EF%B8%8F-what-you-can-put-a-frontend-through">What you can test</a> ·
+<a href="#-examples">Examples</a> ·
+<a href="docs/README.md">Documentation</a> ·
+<a href="docs/tutorial-new-protocol.md">Tutorial</a> ·
+<a href="docs/cookbook.md">Cookbook</a> ·
+<a href="docs/api.md">API</a>
+</p>
 
-1. **Hosted previews and CI with zero infrastructure.** A Vercel preview URL, a Storybook, a Playwright run: the chain
-   is injected into the page like a wallet extension would be. Deterministic, offline, no RPC quota.
-2. **A live demo mode of your real dapp.** Visitors click through the production UI against real protocol contracts
-   with fake money, with other actors trading around them, without installing anything.
+## Why
+
+- 🧬&nbsp; **Real contracts, not mocks.** The mainnet bytecode of Uniswap V2, Aave V3, Euler V2 runs unchanged; reverts, gas and events are the real ones. There is no JavaScript mock of a contract anywhere.
+- 🫙&nbsp; **Zero infrastructure.** The chain lives in a Web Worker on the page. A Vercel preview, a Storybook, a Playwright run, a live demo: nothing to deploy, no RPC quota, deterministic and offline.
+- 🦊&nbsp; **Injected like a wallet extension.** Your dapp discovers "Terrarium Wallet" through EIP-6963 and talks to it as it would to MetaMask. `src/` never imports the simulator; the production bundle contains not one byte of it.
+- 🕹️&nbsp; **Break things on purpose.** Crash an oracle, drain a pool, make the wallet reject or stall, lag the receipts, move time, snapshot and revert, let bots trade around the user, take the indexer down.
+- 📼&nbsp; **Record mainnet at a block, replay offline.** `npx terrarium record --chain 1 --block N` captures every byte a session touches into a fixture the scenario restores with the network unplugged.
+- 🕸️&nbsp; **Subgraphs and APIs answered from the chain.** The dapp's `fetch` to its indexer or price API is answered by the scenario, from the chain in the page, so off-chain data agrees with the pool the user is clicking on.
+
+> [!NOTE]
+> Two things a local node cannot do: **hosted previews and CI with zero infrastructure**, and **a live demo mode of your real dapp** where visitors click through the production UI against real protocol contracts with fake money.
 
 Inside this repo: **Frogpond**, an ordinary ETH/PEPE dapp on the **real Uniswap V2** (mainnet bytecode of the
 Router02, Factory and WETH9), used as the working example, and two lending frontends on recorded mainnet forks.
 
-## Quickstart
+## ⚡ Quickstart
 ```bash
 npm install            # Node 22+. No Rust needed: the wasm engine ships prebuilt in packages/terrarium-evm/pkg
 npm run dev            # http://localhost:5173 → "Connect wallet" → "Terrarium Wallet"
@@ -26,7 +50,7 @@ deliver receipts **late**, take the dapp's **indexer down** or put it three bloc
 the dapp queries is answered from the chain in the page). Reload the page: the chain is still there (IndexedDB, inside
 a Worker). **Reset pond** wipes it and redeploys.
 
-## More examples: real protocols, offline
+## 🧪 Examples
 | example | what | run |
 |---|---|---|
 | [examples/aave](examples/aave/README.md) | Aave V3 mainnet Pool, aTokens, oracle: supply, borrow, health factor vs the UI's math, interest, a price shock via a feed installed at the Chainlink address | `npm run example:aave` |
@@ -35,7 +59,7 @@ a Worker). **Reset pond** wipes it and redeploys.
 Each is a recorded mainnet fork (`record.mjs` → `fixtures/*.json`, ≈0.5 MB) restored offline: no RPC at run time, and any
 read the fixture cannot answer is reported instead of fetched. `npm run test:examples` replays both.
 
-## What you can put a frontend through
+## 🕹️ What you can put a frontend through
 Every one of these is a scenario or a dev-bar button, on the real contracts, with no infrastructure. The primitives are
 `deal` / `setState` (write leaf state), impersonated transactions (produce structural state), code installed at a real
 address (`anvil_setCode` + storage by variable name), the chain clock, snapshots, actors and the wallet knobs.
@@ -58,41 +82,67 @@ address (`anvil_setCode` + storage by variable name), the chain clock, snapshots
 | **Governance or admin changed a parameter** | `setState` on the protocol's config (reserve factor, LTV, pause flag) by storage layout, or impersonate the admin and call the setter | paused markets, changed limits, and how stale the UI's cached config is |
 | **A frontend-math regression** | in a Node test, read the protocol's view function and compare with the UI's formula after every action (the examples do this for the health factor and borrowing power) | the numbers you show equal the numbers the contract enforces |
 
-The tutorial shows how each primitive is used: [docs/tutorial-new-protocol.md](docs/tutorial-new-protocol.md).
+> [!TIP]
+> Every row is a few lines of scenario. The [cookbook](docs/cookbook.md) has one paste-able example per primitive and the [tutorial](docs/tutorial-new-protocol.md) shows how they combine.
 
-## Documentation
+## 📚 Documentation
 [docs/README.md](docs/README.md) is the index: the [tutorial](docs/tutorial-new-protocol.md) (project anatomy, where the
 bytes come from, four steps), [off-chain data](docs/http-and-subgraphs.md) (subgraphs and APIs answered from the chain),
 the [cookbook](docs/cookbook.md) (every feature, one example) and the [API reference](docs/api.md).
 
-## Your own protocol in four steps
+| | |
+|---|---|
+| 🧭 [Tutorial](docs/tutorial-new-protocol.md) | project anatomy, where the bytes come from, compiling contracts, the four steps, troubleshooting |
+| 🕸️ [Off-chain data](docs/http-and-subgraphs.md) | subgraphs and APIs answered from the chain; indexer down / behind / slow |
+| 🍳 [Cookbook](docs/cookbook.md) | every feature, one paste-able example |
+| 📖 [API reference](docs/api.md) | every option, `sim` member, RPC method, scenario field, plugin option, CLI flag, dev-bar test id |
+| 📦 [terrarium](packages/terrarium/README.md) · [terrarium-evm](packages/terrarium-evm/README.md) | the two packages |
+| 🛠️ [CLAUDE.md](CLAUDE.md) · [HANDOFF.md](HANDOFF.md) · [design investigation](docs/design-investigation.md) | operating manual and hard rules; the story pass by pass; the original investigation (historical) |
+
+## 🧭 Your own protocol in four steps
 See [docs/tutorial-new-protocol.md](docs/tutorial-new-protocol.md). It starts with what a project looks like folder by
 folder and where every byte the chain executes comes from (fetched code, a recorded fork, or Solidity you compiled), then:
 get the protocol in (`npx terrarium fetch-code` for bytecode, `npx terrarium record --chain 1 --block N` for the state of a
 chain at a block), write `terrarium.scenario.ts`, add the Vite plugin, run it headless. Every option and RPC method:
 [docs/api.md](docs/api.md).
 
-## How it fits together
+## 🗺️ How it fits together
 
 ```mermaid
-flowchart TB
-  subgraph page["the page"]
+flowchart LR
+  subgraph dapp["🐸 your dapp · src/"]
     direction TB
-    dapp["<b>src/</b> — the dapp<br/>viem + EIP-6963 discovery, nothing else<br/><i>.env: chain id, router + token addresses, subgraph URL</i>"]
-    subgraph injected["injected from outside: the Vite plugin in dev, Playwright addInitScript in tests"]
-      direction TB
-      inject["<b>terrarium/inject</b><br/>EIP-6963 “Terrarium Wallet” · dev bar · fetch interceptor"]
-      worker["<b>Worker: terrarium/worker</b> → runScenario(scenario)<br/>engine.js on revm/wasm: blocks, receipts, logs, cheatcodes<br/>state persisted in IndexedDB"]
-      inject -- postMessage --> worker
-    end
-    dapp -- "eth_* requests,<br/>as it would to MetaMask" --> inject
-    dapp -- "fetch to the subgraph / price APIs<br/>(answered from the chain when a route matches)" --> inject
+    ui["viem + EIP-6963 discovery<br/>configured by .env<br/><i>knows nothing about the Terrarium</i>"]
   end
-  scenario["<b>terrarium.scenario.ts</b><br/>real Uniswap V2 at the mainnet addresses · deploy PEPE · seed the pool<br/>bot-frog actors · subgraph routes · dev-bar controls"] --> worker
-  fixture["<b>terrarium/fixtures/uniswap-v2-mainnet.json</b><br/>mainnet runtime bytecode of Router02, Factory, WETH9"] --> scenario
-  sol["<b>contracts/PEPE.sol</b> → solc → <b>src/generated/contracts.ts</b><br/>abi · bytecode · deployedBytecode · storageLayout"] --> scenario
-  wasm["<b>packages/terrarium-evm</b><br/>revm 43 (Rust) → terrarium_evm_bg.wasm"] --> worker
+  subgraph you["🧑‍💻 what you write"]
+    direction TB
+    scen["📜 terrarium.scenario.ts<br/>install code · deploy · seed<br/>actors · http routes · controls"]
+    fix["📦 fixtures/*.json<br/>bytes from the real chain"]
+    sol["🧱 contracts/*.sol<br/>→ src/generated/contracts.ts"]
+    fix --> scen
+    sol --> scen
+  end
+  subgraph terr["🫙 Terrarium · injected into the page"]
+    direction TB
+    inject["🦊 terrarium/inject<br/>EIP-6963 wallet · dev bar<br/>fetch interceptor"]
+    worker["⚙️ Worker · terrarium/worker<br/>runScenario → engine.js on revm/wasm<br/>blocks · receipts · logs · IndexedDB"]
+    inject <-- "postMessage" --> worker
+  end
+  ui -- "eth_* · as to MetaMask" --> inject
+  ui -- "fetch · subgraph, APIs" --> inject
+  scen --> worker
+  classDef dapp fill:#eef3ff,stroke:#5b7bd5,color:#1b2a4a
+  classDef you fill:#fff7d6,stroke:#e8c547,color:#3d3200
+  classDef terr fill:#e6f2ee,stroke:#1f6f5c,color:#0f3a2e
+  class ui dapp
+  class scen,fix,sol you
+  class inject,worker terr
 ```
+
+**Read it left to right.** The dapp is yours and unchanged: it finds a wallet through EIP-6963 and fetches its subgraph like
+in production. What you write for the Terrarium is one scenario file plus the bytes it needs (fetched from a real chain,
+or compiled from your own Solidity). The Terrarium is injected from outside (the Vite plugin in dev, Playwright's
+`addInitScript` in tests): the wallet on the page, the chain in a Worker.
 
 | where | what |
 |---|---|
@@ -101,18 +151,22 @@ flowchart TB
 | `terrarium.scenario.ts` | the example scenario: what the chain contains when the page loads, and how its subgraph answers |
 | `src/` | Frogpond, an ordinary dapp; `contracts/PEPE.sol` is compiled into `src/generated/` by `npm run build:contracts` |
 
-- **The dapp never imports the simulator.** `src/` is configured by `.env` (`VITE_CHAIN_ID`, `VITE_ROUTER_ADDRESS`,
-  `VITE_TOKEN_ADDRESS`, optional `VITE_RPC_URL`) and talks to whatever wallet announces itself. Build with
-  `VITE_TERRARIUM=off` and not one byte of the simulator is in the bundle (the e2e asserts this).
-- **The Terrarium is injected from outside.** In dev, the Vite plugin (`terrarium/vite`) adds one `<script>` to
-  `index.html`. In tests, Playwright injects `dist-terrarium/terrarium.js` (`npx terrarium build`) with
-  `addInitScript`, like a wallet extension. The dev bar is a plain-DOM overlay driven through `provider.request()`.
-- **The chain runs in a Worker**, so a 3M-gas transaction never freezes the UI. Persistence is IndexedDB.
-- **The pool is the real Uniswap V2.** `terrarium.scenario.ts` (`defineScenario`) installs the mainnet runtime
-  bytecode at the mainnet addresses, deploys PEPE (your contract), seeds the pair through the router and declares the
-  actors. The dapp uses the Router02 / Pair ABIs it would use on mainnet.
+> [!IMPORTANT]
+> **The dapp never imports the simulator.** `src/` is configured by `.env` (`VITE_CHAIN_ID`, `VITE_ROUTER_ADDRESS`,
+> `VITE_TOKEN_ADDRESS`, optional `VITE_RPC_URL`) and talks to whatever wallet announces itself. Build with
+> `VITE_TERRARIUM=off` and not one byte of the simulator is in the bundle (the e2e asserts this).
+>
+> **The Terrarium is injected from outside.** In dev, the Vite plugin (`terrarium/vite`) adds one `<script>` to
+> `index.html`. In tests, Playwright injects `dist-terrarium/terrarium.js` (`npx terrarium build`) with
+> `addInitScript`, like a wallet extension. The dev bar is a plain-DOM overlay driven through `provider.request()`.
+>
+> **The chain runs in a Worker**, so a 3M-gas transaction never freezes the UI. Persistence is IndexedDB.
+>
+> **The pool is the real Uniswap V2.** `terrarium.scenario.ts` (`defineScenario`) installs the mainnet runtime
+> bytecode at the mainnet addresses, deploys PEPE (your contract), seeds the pair through the router and declares the
+> actors. The dapp uses the Router02 / Pair ABIs it would use on mainnet.
 
-## Tests
+## ✅ Tests
 ```bash
 npm test               # = test:unit + test:fork + test:examples. No network, no Foundry, no browser.
 npm run test:unit      # Node's test runner over test/unit/*.test.mjs: chain, txs, cheatcodes, state, logs/actors, wallet,
@@ -134,7 +188,7 @@ the dev bar), snapshot → swap → revert, LP approval + remove, reload, and Po
 the only place the dev bar, the injected wallet and IndexedDB persistence run for real; the unit suite covers everything
 that has a Node equivalent.
 
-## The engine directly (Node, Vitest, your own harness)
+## 🧩 The engine directly (Node, Vitest, your own harness)
 ```ts
 import { createTerrarium, indexedDBStorage } from 'terrarium';
 const sim = await createTerrarium({
@@ -154,7 +208,7 @@ await sim.provider.request({ method: 'terrarium_setWallet', params: [{ rejectNex
 Fork a live chain instead of starting empty: `createTerrarium({ chainId: 1, fork: { url, blockNumber } })`; every
 remote read is recorded, so `sim.dumpState()` is an offline fixture (`test/fork-record.mjs` / `test/fork-offline.mjs`).
 
-## The engine and its speed
+## 🏎️ The engine and its speed
 Execution is revm 43 compiled to WebAssembly (`packages/terrarium-evm`, 1.5 MB wasm, no C dependencies), verified byte
 for byte against Anvil by `npm run test:uniswap`:
 
@@ -170,23 +224,16 @@ or fetched, recorded and re-run (fork mode), so the same code path serves both. 
 engine that used to be the reference was removed in 0.3; the remaining `@ethereumjs/*` packages provide the state trie,
 RLP, transactions and block headers, not execution.
 
-## Two things a real chain hides that this one will show you
+## 🔍 Two things a real chain hides that this one will show you
 - **Deadlines.** Derive them from the `pending` block (`getBlock({ blockTag: 'pending' })`), not from `latest` and not
   from `Date.now()`. On an idle Terrarium the latest block can be hours old; with the dev bar the chain clock can be
   ahead of the wall clock. The real Uniswap router answered `EXPIRED` to a deadline built from `latest`.
 - **Wallet errors.** viem retries "unknown" RPC errors three times with backoff. A provider that throws a plain object
   for a revert costs a second per failed estimate; the Terrarium's errors extend viem's `BaseError` for that reason.
 
-## Honest limits
+## ⚠️ Honest limits
 - Fork mode has no local state trie (remote state is unknown), so forked chains report a placeholder `stateRoot`
   (configurable). Everything else in the header is real and verifiable in every mode.
 - No JS-mocked contracts: `mockContract` left with the JS engine. Mock with bytecode instead: install a small contract at
   the address (`anvil_setCode`) and set its variables (`setState`), as the Aave example does with its price feed.
 - `eth_subscribe` pushes new heads only (as EIP-1193 `message` events); no log subscriptions. viem polls, which works.
-
-## Docs
-- [docs/tutorial-new-protocol.md](docs/tutorial-new-protocol.md): your protocol in four steps, use cases, troubleshooting.
-- [docs/api.md](docs/api.md): every option, `sim` member, RPC method, scenario field, plugin option, CLI command, test id.
-- [packages/terrarium/README.md](packages/terrarium/README.md), [packages/terrarium-evm/README.md](packages/terrarium-evm/README.md): the two packages.
-- `CLAUDE.md`: operating manual and hard rules (also read by Claude Code). `HANDOFF.md`: the story, pass by pass.
-- `docs/design-investigation.md`: the original investigation (Sep 2026). Historical: see its status note.

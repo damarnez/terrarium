@@ -2,12 +2,12 @@
 
 ← [Docs index](README.md) · [Cookbook](cookbook.md) · [Off-chain data](http-and-subgraphs.md) · [API reference](api.md)
 
-**Contents:** [How the pieces fit](#how-the-pieces-fit) · [The shape of a project](#the-shape-of-a-project) ·
-[Where the bytes come from](#where-the-bytes-come-from) · [Compiling your own contracts](#compiling-your-own-contracts) ·
+**Contents:** [How the pieces fit](#%EF%B8%8F-how-the-pieces-fit) · [The shape of a project](#%EF%B8%8F-the-shape-of-a-project) ·
+[Where the bytes come from](#-where-the-bytes-come-from) · [Compiling your own contracts](#-compiling-your-own-contracts) ·
 [1. Get the protocol in](#1-get-the-protocol-in) · [2. Write the scenario](#2-write-the-scenario) ·
 [3. Inject the Terrarium](#3-point-your-dapp-at-the-addresses-and-inject-the-terrarium) · [4. Run it headless](#4-run-it-headless) ·
-[5. Off-chain data](#5-off-chain-data-the-subgraph-and-the-apis) · [Scenarios worth writing](#scenarios-worth-writing) ·
-[Troubleshooting](#troubleshooting)
+[5. Off-chain data](#5-off-chain-data-the-subgraph-and-the-apis) · [Scenarios worth writing](#-scenarios-worth-writing) ·
+[Troubleshooting](#-troubleshooting)
 
 You have a frontend for some protocol: a lending pool, a DEX, a vault. You want to click through it, run it in CI and
 show it to people, without running a node, installing an extension or begging for test ETH. This tutorial takes you
@@ -17,21 +17,36 @@ come from, why you never compile Aave, and when you do have to write Solidity.
 The finished versions of everything built here are in this repo: **Frogpond** at the root (`terrarium.scenario.ts`, a
 DEX on the real Uniswap V2) and `examples/aave` / `examples/euler` (lending, from recorded mainnet forks).
 
-## How the pieces fit
+## 🗺️ How the pieces fit
 
 ```mermaid
 flowchart LR
-  subgraph page["the page"]
-    dapp["your dapp<br/>src/ · viem · EIP-6963<br/><i>.env: chain id + addresses</i>"]
-    inject["Terrarium Wallet<br/>(EIP-6963 provider + dev bar)"]
-    worker["Worker: the chain<br/>revm/wasm · blocks · receipts · logs<br/>persistence in IndexedDB"]
-    dapp -- "eth_* requests, like to MetaMask" --> inject
-    dapp -- "fetch: subgraph, price API<br/>(intercepted if a route matches)" --> inject
-    inject -- postMessage --> worker
+  subgraph dapp["🐸 your dapp · src/"]
+    ui["viem · EIP-6963<br/>.env: chain id, addresses, subgraph URL"]
   end
-  scenario["terrarium.scenario.ts<br/><i>what the chain looks like on load,<br/>and how its APIs answer</i>"] --> worker
-  fixtures["fixtures/*.json<br/><i>bytes taken from the real chain</i>"] --> scenario
-  generated["src/generated/contracts.ts<br/><i>your own compiled Solidity</i>"] --> scenario
+  subgraph you["🧑‍💻 what you write"]
+    direction TB
+    scen["📜 terrarium.scenario.ts<br/>what the chain looks like on load<br/>how its APIs answer"]
+    fix["📦 fixtures/*.json<br/>bytes taken from the real chain"]
+    gen["🧱 src/generated/contracts.ts<br/>your own compiled Solidity"]
+    fix --> scen
+    gen --> scen
+  end
+  subgraph terr["🫙 Terrarium · injected"]
+    direction TB
+    inject["🦊 Terrarium Wallet<br/>EIP-6963 provider · dev bar<br/>fetch interceptor"]
+    worker["⚙️ Worker: the chain<br/>revm/wasm · blocks · receipts · logs<br/>IndexedDB persistence"]
+    inject <-- "postMessage" --> worker
+  end
+  ui -- "eth_* requests" --> inject
+  ui -- "fetch: subgraph, price API" --> inject
+  scen --> worker
+  classDef dapp fill:#eef3ff,stroke:#5b7bd5,color:#1b2a4a
+  classDef you fill:#fff7d6,stroke:#e8c547,color:#3d3200
+  classDef terr fill:#e6f2ee,stroke:#1f6f5c,color:#0f3a2e
+  class ui dapp
+  class scen,fix,gen you
+  class inject,worker terr
 ```
 
 Your dapp talks to a wallet, as it would to MetaMask. The wallet happens to be backed by a whole EVM chain running in a
@@ -40,7 +55,7 @@ material from two places: bytes fetched from a real chain (fixtures) and contrac
 The same scenario can answer the dapp's off-chain reads (a subgraph, a price API) from that chain, so the indexer agrees
 with the pool the user is clicking on. Nothing in `src/` knows any of this exists.
 
-## The shape of a project
+## 🗂️ The shape of a project
 
 This is what a finished project looks like. The right column says who reads each thing, which is the quickest way to
 understand why it exists.
@@ -73,25 +88,25 @@ my-dapp/
 - **`terrarium.scenario.ts`** turns fixtures and generated contracts into a chain: install code, deploy, seed, define the
   other actors, expose buttons. It runs in the Worker on every page load.
 
-## Where the bytes come from
+## 🧬 Where the bytes come from
 
 Everything the chain executes is bytecode. There is no JavaScript mock of a contract anywhere: if the pool's `borrow`
 reverts, it is the pool's real bytecode reverting. So the whole question of "how do I get protocol X in" is "where do
 the bytes come from", and there are exactly three sources:
 
 ```mermaid
-flowchart TB
-  chain[("a real chain<br/>(mainnet, an L2, a testnet)")]
-  sol["your .sol files"]
-
-  chain -- "eth_getCode<br/><b>terrarium fetch-code</b>" --> codefix["fixtures/my-protocol.json<br/>{ contracts: { router: { address, code } } }<br/><i>code only, a few KB</i>"]
-  chain -- "fork at block N, touch state<br/><b>terrarium record</b> / record.mjs" --> forkfix["fixtures/my-fork.json<br/>{ blockNumber, dump: { remote: accounts, code, storage } }<br/><i>every byte the EVM touched, ≈0.5 MB</i>"]
-  sol -- "solc / forge / hardhat<br/><b>build-contracts.mjs</b>" --> art["src/generated/contracts.ts<br/>{ abi, bytecode, deployedBytecode, storageLayout }"]
-
-  codefix -- "ctx.install(fixture)<br/>every boot, idempotent" --> A["chain A: the protocol's code at its<br/>mainnet addresses, <b>empty storage</b><br/>→ the scenario creates pools, mints, seeds<br/>with real transactions"]
-  forkfix -- "fork: { blockNumber, offline: true }<br/>restore: fixture.dump" --> B["chain B: mainnet <b>as it was at block N</b><br/>reserves, rates, oracles, positions<br/>→ the chain continues at N + 1, offline"]
-  art -- "deployContract (a new address)<br/>or anvil_setCode (an existing one)" --> A
-  art -- "anvil_setCode at a real address<br/>+ setState by variable name" --> B
+flowchart LR
+  A(["<b>A · code only</b>"]) --> a1["🌐 a real chain"] --> a2["terrarium fetch-code<br/>eth_getCode at --block"] --> a3["📦 fixtures/my-protocol.json<br/>address + code · a few KB"] --> a4["ctx.install(fixture)<br/>every boot, idempotent"] --> a5["the protocol's code at its addresses<br/><b>empty storage</b><br/>the scenario seeds it with real txs"]
+  B(["<b>B · state at a block</b>"]) --> b1["🌐 a real chain at block N"] --> b2["terrarium record<br/>fork · touch state · dump"] --> b3["📦 fixtures/my-fork.json<br/>accounts · code · storage touched<br/>≈ 0.5 MB"] --> b4["fork: { blockNumber, offline: true }<br/>restore: fixture.dump"] --> b5["mainnet <b>as it was at block N</b><br/>reserves · rates · oracles · positions<br/>continues at N + 1, offline"]
+  C(["<b>C · your own Solidity</b>"]) --> c1["📝 contracts/*.sol"] --> c2["solc · forge · hardhat"] --> c3["🧱 src/generated/contracts.ts<br/>abi · bytecode<br/>deployedBytecode · storageLayout"] --> c4["deployContract → a new address<br/>anvil_setCode + setState → an existing one"] --> c5["a token, a stand-in oracle:<br/>what the real chain does not have"]
+  classDef lane fill:#14231b,stroke:#14231b,color:#fff
+  classDef src fill:#eef3ff,stroke:#5b7bd5,color:#1b2a4a
+  classDef fixt fill:#fff7d6,stroke:#e8c547,color:#3d3200
+  classDef res fill:#e6f2ee,stroke:#1f6f5c,color:#0f3a2e
+  class A,B,C lane
+  class a1,b1,c1 src
+  class a3,b3,c3 fixt
+  class a5,b5,c5 res
 ```
 
 ### A. Code only: `fetch-code`
@@ -111,7 +126,8 @@ or a storage slot, it is fetched from the node and *recorded*. Dump the recordin
 bytes mainnet had at block N for everything your session touched, and nothing else. A scenario restores that fixture
 and continues the chain at N + 1 with the network unplugged.
 
-This is why **the Aave and Euler examples contain no Aave or Euler source code**. The Pool, its proxy, the
+> [!NOTE]
+> This is why **the Aave and Euler examples contain no Aave or Euler source code**. The Pool, its proxy, the
 implementation behind it, the aTokens, the debt tokens, the oracle, the Chainlink aggregators, WETH, USDC: all of it
 arrived as the bytes it actually is on mainnet, along with the storage that makes it meaningful (reserves, interest
 indexes, risk parameters, the current price round). You never compile a protocol to fork it; you would only be rebuilding
@@ -133,11 +149,12 @@ name using the compiler's storage layout. That is the whole `ETH −30%` button.
 because it only exercises what the recorded state already allows (deposit, borrow, interest, and staleness after time
 travel, which is the real oracle reverting on purpose).
 
-The general rule: **write leaf state, produce structural state.** A balance, an allowance, an oracle answer can be
+> [!IMPORTANT]
+> The general rule: **write leaf state, produce structural state.** A balance, an allowance, an oracle answer can be
 written directly. Pool reserves, positions, interest indexes must come from real transactions, or the protocol's
 invariants break in ways your UI will faithfully display.
 
-## Compiling your own contracts
+## 🧱 Compiling your own contracts
 
 The scenario needs, per contract, up to four things from the compiler:
 
@@ -196,7 +213,8 @@ time; a full node serves only its last ≈128 blocks, an archive node any). `--c
 the node serves another chain, so a wrong RPC URL fails loudly instead of producing a fixture of the wrong network.
 The fixture is `{ chainId, blockNumber, contracts: { router: { address, code }, … } }`.
 
-**Keep the mainnet addresses.** Contracts have each other's addresses baked in as immutables: the router knows its
+> [!WARNING]
+> **Keep the mainnet addresses.** Contracts have each other's addresses baked in as immutables: the router knows its
 factory and WETH, the factory derives pair addresses from its own address and init code hash. Move one and the others
 stop finding it. The Uniswap V2 fixture that ships with the package (`terrarium/fixtures/uniswap-v2-mainnet.json`) was
 made exactly this way.
@@ -256,7 +274,8 @@ booting the fixture with the network forbidden and reading the named accounts ba
 never gets written. `examples/aave/record.mjs` is the same recipe written by hand, for when you want full control
 over snapshots and what stays in the fixture.
 
-**What makes a fixture complete.** At replay time the network is forbidden: a read the fixture cannot answer is a
+> [!TIP]
+> **What makes a fixture complete.** At replay time the network is forbidden: a read the fixture cannot answer is a
 *miss*, shown in the dev bar as `N MISSES`, listed in `sim.offlineMisses`, and never fetched. So the recorder must take
 every path the UI and your tests will take:
 
@@ -514,7 +533,7 @@ goes to the network. Plain handlers cover REST APIs, `graphql` resolvers cover s
 and headers, and a control can take the indexer down or put it behind the chain to see what the UI does. Frogpond does
 exactly this for the Uniswap V2 subgraph. The whole story: [http-and-subgraphs.md](http-and-subgraphs.md).
 
-## Scenarios worth writing
+## 💡 Scenarios worth writing
 
 The README's table of use cases lists what frontends usually get wrong; each row is a few lines of scenario. The recipe
 is always the same: put the chain in the interesting state with the primitives above, then look at the UI.
@@ -534,7 +553,7 @@ is always the same: put the chain in the interesting state with the primitives a
 - **The indexer lies.** An `http` route that answers the subgraph three blocks behind the head, or with a 503, while the
   chain moves on: does the UI show the lag, or does the user's own swap vanish from "recent activity"?
 
-## Two rules for the dapp side
+## 📏 Two rules for the dapp side
 
 - **Deadlines and anything time-based come from the pending block**: `getBlock({ blockTag: 'pending' })`. `latest` can
   be hours old on an idle chain (the real Uniswap router answered `EXPIRED` after an idle hour) and `Date.now()` is wrong
@@ -543,7 +562,7 @@ is always the same: put the chain in the interesting state with the primitives a
   EIP-6963, and keep every test hook on the Terrarium side: `window.terrarium`, `terrarium_*` methods, the dev bar.
   The moment `src/` special-cases the Terrarium, you are testing something other than what you ship.
 
-## Checking your numbers
+## 🔢 Checking your numbers
 
 The chain is real EVM execution of the real bytecode, so the protocol's own view functions are the oracle for your
 frontend math: read them through `ctx.pub` in the scenario, the viem client in a Node test, or the dapp itself, and
@@ -551,7 +570,7 @@ compare. The Aave example shows the Pool's health factor next to the UI's, with 
 its test asserts the same, then halves the ETH price and asserts again. `npm run test:uniswap` shows the pattern for a
 DEX (router quote vs the constant-product formula vs the executed result) and proves the engine itself against Anvil.
 
-## Troubleshooting
+## 🩺 Troubleshooting
 
 | symptom | cause | fix |
 |---|---|---|
@@ -573,7 +592,7 @@ DEX (router quote vs the constant-product formula vs the executed result) and pr
 | `[terrarium] actor … failed:` in the console | an actor's `run` threw; actors never crash the chain | read the message; usually a stale address in `ctx.state` or a missing approval |
 | the page reloads but old history is back | that is persistence working | dev bar → Reset for a clean chain; `persist: false` for tests that must start empty |
 
-## Where to look next
+## 🔗 Where to look next
 
 - [cookbook.md](cookbook.md): every feature, one paste-able example.
 - [http-and-subgraphs.md](http-and-subgraphs.md): answering the dapp's APIs and subgraphs from the chain.
