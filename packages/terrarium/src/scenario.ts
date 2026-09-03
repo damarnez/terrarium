@@ -7,6 +7,9 @@
 //     status: (ctx) => ({ addresses: ctx.state }),
 //   });
 import type { Account, Address, Chain, Hex, PublicClient, TransactionReceipt, Transport, WalletClient } from 'viem';
+import type { HttpRoute } from './http.ts';
+export { reply } from './http.ts';
+export type { HttpRoute, HttpRequest, HttpReply, GraphqlQuery, GraphqlResolver } from './http.ts';
 
 /** Runtime bytecode of deployed contracts, installed at fixed addresses (`terrarium fetch-code` produces these). */
 export interface Fixture { contracts: Record<string, { address: string; code: string }> }   // plain strings: JSON imports fit as-is
@@ -82,6 +85,10 @@ export interface ScenarioConfig {
   status?(ctx: ScenarioContext): Promise<Record<string, unknown>> | Record<string, unknown>;
   /** extra RPC methods, reachable through the provider: methods: { terrarium_faucet: (ctx, to) => ... } */
   methods?: Record<string, (ctx: ScenarioContext, ...args: any[]) => unknown>;
+  /** HTTP calls of the dapp to answer from the chain (subgraphs, price APIs, your backend): the page's `fetch` is
+   *  intercepted for matching URLs, the handler runs here in the Worker with `ctx`, everything else goes to the network.
+   *  http: [{ match: 'https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v2', graphql: { swaps: (ctx, q) => … } }] */
+  http?: HttpRoute[];
 }
 
 export function defineScenario(config: ScenarioConfig): ScenarioConfig { return config; }

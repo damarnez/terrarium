@@ -1,5 +1,12 @@
 # Terrarium API reference
 
+← [Docs index](README.md) · [Tutorial](tutorial-new-protocol.md) · [Cookbook](cookbook.md) · [Off-chain data](http-and-subgraphs.md)
+
+**Contents:** [createTerrarium](#createterrariumoptions--sim--terrarium--terrariumengine) · [sim](#sim) · [Verifiable blocks](#verifiable-blocks) ·
+[RPC surface](#rpc-surface-providerrequest-method-params-) · [defineScenario](#definescenarioconfig--terrariumscenario) · [HTTP routes](#http-routes-terrariumhttp) ·
+[Recording a protocol](#recording-a-protocol-the-examples-recipe) · [Vite plugin](#vite-plugin--terrariumvite) · [CLI](#cli--npx-terrarium) · [Bridge](#the-postmessage-bridge--terrariumbridge) ·
+[wasm engine](#the-wasm-engine-package-terrarium-evm) · [Injected page globals](#injected-page-globals) · [Tests](#tests)
+
 ## `createTerrarium(options)` → `sim`  (`terrarium` / `terrarium/engine`)
 
 | option | default | meaning |
@@ -64,7 +71,7 @@ funds) gets a failed receipt with `droppedReason` instead, so `waitForTransactio
 - **Wallet**: `eth_accounts eth_requestAccounts eth_sendTransaction personal_sign eth_signTypedData_v4 wallet_switchEthereumChain wallet_addEthereumChain wallet_getPermissions wallet_requestPermissions wallet_revokePermissions`. Wallet methods pass through the latency / rejection gate (before the state lock, so reads keep flowing).
 - **Cheatcodes** (Anvil and Hardhat names, so viem's `createTestClient({ mode: 'anvil' })` works unchanged): `evm_mine anvil_mine hardhat_mine evm_setNextBlockTimestamp evm_increaseTime (negative allowed) evm_setAutomine evm_setIntervalMining anvil_setBalance anvil_setCode anvil_setNonce anvil_setStorageAt anvil_impersonateAccount anvil_stopImpersonatingAccount anvil_setNextBlockBaseFeePerGas evm_snapshot evm_revert`; every `anvil_*` also as `hardhat_*`, and `anvil_setNextBlockTimestamp / anvil_increaseTime / anvil_setAutomine / anvil_setIntervalMining` as aliases of the `evm_*` ones.
 - **Terrarium**: `sim_deal(token, holder, amountHex, opts)`, `sim_setState(address, layout, values)`, `sim_dumpState()`, `terrarium_setWallet({ rejectNext?, latencyMs?, receiptLagMs? })` → the knobs, `terrarium_getWallet()`.
-- **Scenario runtime** (when run through `runScenario`): `terrarium_actors(on?)` → enabled, `terrarium_status()` → `{ chainId, engine, block, accounts, actors, actorsLabel, hasActors, wallet, controls, restoredFromPersistence, localBlocks, fork: null | { blockNumber, offline, misses }, ...status(ctx) }`, `terrarium_reset()` (stops actors and timers, **clears the whole IndexedDB store** of this origin, returns true; the dev bar reloads), plus anything in `methods`.
+- **Scenario runtime** (when run through `runScenario`): `terrarium_actors(on?)` → enabled, `terrarium_status()` → `{ chainId, engine, block, accounts, actors, actorsLabel, hasActors, wallet, controls, restoredFromPersistence, localBlocks, fork: null | { blockNumber, offline, misses }, http: { routes, hits }, ...status(ctx) }`, `terrarium_reset()` (stops actors and timers, **clears the whole IndexedDB store** of this origin, returns true; the dev bar reloads), `terrarium_httpRoutes()` → the scenario's `http` routes in wire form, `terrarium_http(index, { url, method, headers?, body? })` → `{ status, headers, body }` (runs one route; what the patched `fetch` calls), plus anything in `methods`.
 - Errors carry EIP-1193 / JSON-RPC codes and extend viem's `BaseError`: `3` execution reverted (with revert `data`), `4001` user rejected, `4100` unauthorized (unknown signer, or a wallet method on `node`), `4902` unknown chain, `-32000` node errors (`no key for 0x…`, `filter not found`), `-32601` unknown method. viem decodes them unchanged and does not retry them.
 
 ## `defineScenario(config)`  (`terrarium/scenario`)
@@ -80,6 +87,7 @@ funds) gets a failed receipt with `droppedReason` instead, so `waitForTransactio
 | `actorsLabel` | dev bar label for the toggle (default `Actors`) |
 | `status(ctx)` | extra fields merged into `terrarium_status` |
 | `methods` | `{ terrarium_x: (ctx, ...args) => result }` |
+| `http` | `HttpRoute[]`: the dapp's HTTP calls to answer from the chain (see [HTTP routes](#http-routes-terrariumhttp)) |
 
 `ctx`: `sim`, `chainId`, `accounts`, `rpc(method, params)`, `pub` (viem public client), `wallet(account)` (viem wallet
 client signing with the sim's keys), `wait(hashOrPromise)`, `deadline(seconds = 3600)` (chain clock), `random()`,
@@ -87,7 +95,27 @@ client signing with the sim's keys), `wait(hashOrPromise)`, `deadline(seconds = 
 `firstBoot` (nothing persisted yet, even if a fixture was restored: the once-only hook for fork scenarios), `codeAt(address)`,
 `install(fixture)` (writes each contract's code only where there is none), `state` (free-form bag).
 
+## HTTP routes  (`terrarium/http`)
+The page's `fetch` is patched by `startTerrarium`; requests matching a scenario `http` route are posted to the Worker and
+answered there, everything else goes to the network. Full guide: [http-and-subgraphs.md](http-and-subgraphs.md).
+
+| field of an `HttpRoute` | meaning |
+|---|---|
+| `match` | `string`: URL prefix, or glob when it contains `*`; `RegExp`: tested against the full URL |
+| `method` | restrict to one HTTP method (default any) |
+| `handler(ctx, req)` | return JSON data (→ 200 `application/json`, bigints as strings), a string (→ 200 `text/plain`) or `reply(body, { status?, headers? })`. With `graphql` present: a gate, `undefined` lets the resolvers answer |
+| `graphql` | `{ field: (ctx, q: GraphqlQuery) => result }`; the operation is parsed, each top-level field resolved, answered as `{ data, errors? }`; syntax errors → 400 |
+| `name` | for warnings and `terrarium_httpRoutes` |
+
+`req: HttpRequest = { url, method, headers, body: string | null, json, query }`. `q: GraphqlQuery = { field, alias, args, selection,
+variables, operationName, query }` (variables substituted and defaults applied; enums as strings; fragments not expanded).
+`reply` is exported from `terrarium/scenario`. `terrarium/http` also exports `parseGraphql(source, variables?, operationName?)`,
+`compileMatcher(wireRoute)`, `installHttpInterceptor(provider, routesPromise, scope = globalThis)` → restore function, `runRoute(ctx, route, raw)`,
+`toWire(routes)`. The Worker posts `{ event: 'httpRoutes', payload }` before booting so the page can start intercepting immediately;
+a handler that throws is answered as a 500 with `{ error }` and a console warning. Only `fetch` is intercepted (not XHR or WebSocket).
+
 ### Recording a protocol (the examples' recipe)
+`npx terrarium record … --script warm.mjs` does the steps below for you (the script is step 2). By hand:
 1. `createTerrarium({ fork: { url, blockNumber } })` in a Node script; `deal` the user its tokens; `sim.snapshot()`.
 2. Exercise every path the UI will take, including the view calls it polls and time passing: everything read is recorded.
 3. `sim.revert(snapshot)` (the user's position is gone, the recordings stay), `sim.dumpState()` → fixture JSON.
@@ -105,8 +133,18 @@ depends on `debug`, which reads `process.env` in the browser), `worker: { format
 - `terrarium build [--scenario file] [--out dir]`: one injectable classic script `dist-terrarium/terrarium.js` (IIFE,
   Worker bundle and wasm embedded, ≈2.8 MB) plus `terrarium.worker.js`. Built with Vite from the cwd, so the scenario's
   `import.meta.env.VITE_*` come from the cwd's `.env` files.
-- `terrarium fetch-code <name=0xaddress>... --rpc <url> [--out fixture.json]`: runtime bytecode fixture for `ctx.install`:
-  `{ source, blockNumber, fetchedAt, contracts: { name: { address, code } } }`. Exits 1 for an address without code.
+- `terrarium fetch-code <name=0xaddress>... --rpc <url> [--block N] [--chain ID] [--out fixture.json]`: runtime bytecode
+  fixture for `ctx.install`: `{ source, chainId, blockNumber, fetchedAt, contracts: { name: { address, code } } }`. The code is
+  read at `--block` (default: the node's latest). `--chain` exits 1 if the node serves another chain; an address without
+  code exits 1.
+- `terrarium record [name=0xaddress]... --rpc <url> [--block N] [--chain ID] [--storage name:slot,slot]... [--script file.mjs] [--keep] [--out fixture.json]`:
+  the state of a chain at a block as an offline fork fixture. Forks at `--block` (default: latest − 8) with the chain clock
+  anchored to that block's timestamp, reads each named account (balance, nonce, code) and each `--storage` slot, then runs
+  the script's default export `async ({ sim, pub, wallet, accounts, addresses, rpc, viem }) => expected` against the fork
+  (every touched account, code blob and slot is recorded) inside a snapshot that is reverted afterwards unless `--keep`.
+  Writes `{ source, chainId, blockNumber, timestamp, recordedAt, addresses, expected, remoteReads, dump }`, then boots the
+  file with the network forbidden and reads the named accounts back; a fixture that cannot replay is not written (exit 1).
+  Consumed by a scenario as `fork: { blockNumber: fixture.blockNumber, offline: true }, restore: fixture.dump, clock: 'recording'`.
 
 ## The postMessage bridge  (`terrarium/bridge`)
 `serveProvider(provider)` (Worker side) answers `{ id, method, params }` messages and forwards `message`, `accountsChanged`,
@@ -133,13 +171,15 @@ dependencies (k256 / ark / pure-Rust KZG fallbacks). `engine.js` drives it; you 
 
 ## Injected page globals
 `window.terrarium = { provider, request(method, params) }`: the wallet's own global, like `window.ethereum`. For tests
-and the console, never for the dapp. The dev bar mounts as `<footer id="terrarium-devbar" data-testid="devbar">` with
+and the console, never for the dapp. `window.fetch` is replaced by the HTTP interceptor when the scenario declares
+`http` routes (unmatched requests pass through to the original). The dev bar mounts as `<footer id="terrarium-devbar" data-testid="devbar">` with
 buttons carrying `data-testid`s: `block` (the head counter), `mine plus-hour mining snapshot actors reject-next
 wallet-latency receipt-lag reset`, and `control-<i>` for the scenario's `controls` in order.
 
 ## Tests
 `npm test` = `test:unit` (Node's test runner, `test/unit/*.test.mjs`, no network, no Foundry: chain, transactions,
 cheatcodes, state fabrication, logs and actors, wallet, persistence, fork mode with a local fake node, the wasm engine,
-the scenario runtime, the bridge, the Vite plugin, the CLI including a standalone build) + `test:fork` + `test:examples`.
+the scenario runtime, HTTP routes (parser, Worker dispatch, page interceptor), the bridge, the Vite plugin, the CLI
+including a standalone build) + `test:fork` + `test:examples`.
 Separately: `test:uniswap` (differential vs Anvil, needs Foundry) and `e2e` (headless Chromium: the dev bar, IndexedDB
 persistence and the injected wallet, which have no Node equivalent).

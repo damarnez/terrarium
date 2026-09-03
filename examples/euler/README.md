@@ -21,3 +21,6 @@ npm run example:euler       # http://localhost:5175 → Connect wallet → Terra
 Same recipe as the Aave example: `record.mjs` (fork, deal, snapshot, exercise every path, revert, dump →
 `fixtures/euler-mainnet.json`, ≈500 KB), `terrarium.scenario.ts` (offline restore of the fixture), `src/` (an ordinary
 dapp: `.env` addresses, viem, EIP-6963), `test.mjs` (offline replay, `npm run test:examples`), `npm run record:euler` to re-record, `VITE_FORK_RPC` in `.env` to run online.
+There is no `contracts/` folder: every contract this example touches (vaults, EVC, oracles, tokens) is mainnet bytecode
+from the recorded fork, and nothing needs to be moved that the recorded state does not already allow. Compare the Aave
+example, whose one Solidity file exists only to move a price.

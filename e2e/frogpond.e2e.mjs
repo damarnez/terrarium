@@ -104,6 +104,18 @@ try {
   results.priceAfterSwapBack = await price();
   const pointsBeforeSnapshot = await points();
 
+  // the indexer: the dapp's subgraph query (VITE_SUBGRAPH_URL, a mainnet URL) is answered from the chain in the Worker.
+  // Take it down from the dev bar: the UI must say so and keep working on chain data; bring it back.
+  await page.waitForFunction(() => Number(document.querySelector('[data-testid=indexer]')?.getAttribute('data-swaps')) >= 2, null, { timeout: 20000 });
+  results.indexedSwaps = Number(await page.getByTestId('indexer').getAttribute('data-swaps'));
+  results.indexerSummary = await page.getByTestId('indexer-count').innerText();
+  await page.getByTestId('control-0').click();                          // Indexer: down (HTTP 503)
+  await page.getByTestId('indexer-error').waitFor({ timeout: 20000 });
+  results.indexerDown = await page.getByTestId('indexer-error').innerText();
+  await page.getByTestId('control-2').click();                          // Indexer: live
+  await page.waitForFunction(() => !document.querySelector('[data-testid=indexer-error]'), null, { timeout: 20000 });
+  results.httpAnswered = (await rpc('terrarium_status')).http;
+
   // snapshot, swap, revert: chain AND UI history must come back
   await page.getByTestId('snapshot').click();
   await page.waitForFunction(() => /Revert/.test(document.querySelector('[data-testid=snapshot]').innerText));
@@ -157,6 +169,7 @@ try {
     && results.pointsAfterSwap > results.pointsAtOpen && results.priceAfterSwap !== results.priceAtOpen
     && results.priceInsideSnapshot !== results.priceAfterSwapBack && results.priceAfterRevert === results.priceAfterSwapBack && results.pointsAfterRevert === pointsBeforeSnapshot
     && /9\.09%/.test(results.positionAfterRemove)
+    && results.indexedSwaps >= 2 && /swaps indexed/.test(results.indexerSummary) && /HTTP 503/.test(results.indexerDown) && results.httpAnswered.hits >= 3
     && results.priceAfterReload === results.priceAfterSwapBack && results.blockAfterReload === results.blockBeforeReload;
   console.log(ok ? '\nPASS' : '\nFAIL');
   process.exitCode = ok ? 0 : 1;

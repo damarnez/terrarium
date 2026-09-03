@@ -14,6 +14,7 @@
     "./worker": "./src/worker-runtime.ts",
     "./inject": "./src/inject.ts",
     "./bridge": "./src/bridge.ts",
+    "./http": "./src/http.ts",
     "./vite": "./src/vite-plugin.ts",
     "./fixtures/*": "./fixtures/*"
   },

@@ -18,6 +18,15 @@ npm run example:aave        # http://localhost:5174 → Connect wallet → Terra
   consumer keep reading "the oracle" and the health factor reacts. **ETH price: mainnet** puts the real feed back.
 - **Wallet failure modes.** Reject next tx, a slow wallet, late receipts: all in the dev bar, as in every example.
 
+## Why there is a `contracts/FixedPriceFeed.sol` here, and no Aave source anywhere
+The Pool, its proxy and implementation, the aTokens, the debt tokens, the oracle and the Chainlink aggregators all arrive
+as bytes from the recorded fork: the Terrarium fetched their code and the storage the UI touched at the recorded block, so
+there is nothing to compile. The one thing that does not exist on mainnet is a price you can move. `FixedPriceFeed.sol` is a
+20-line Chainlink-shaped contract with a settable `answer`; the scenario installs its runtime code *at the aggregator's
+address* and writes `answer` / `decimals` / `roundId` by variable name. Aave keeps reading "the oracle" and the health
+factor reacts. `npm run build:contracts` compiles it into `src/generated/contracts.ts` (abi, bytecode, deployedBytecode,
+storageLayout). The Euler example needs no Solidity at all: everything it shows is in the recorded state already.
+
 ## How it is built
 - `record.mjs` forks mainnet (`createTerrarium({ fork })`), deals the user 100 WETH, snapshots, then exercises every path
   the UI takes (supply, borrow, an hour passing, repay, withdraw, oracle reads) so all the state they touch is recorded.
@@ -27,5 +36,6 @@ npm run example:aave        # http://localhost:5174 → Connect wallet → Terra
 - `src/` is the dapp: `.env` addresses, viem, EIP-6963. It does not know the Terrarium exists.
 - `test.mjs` replays the fixture offline: health factor vs client math, interest after an hour, the
   price shock halving the health factor, repay-all and withdraw-all. `npm run test:examples`.
-- Re-record against current mainnet: `npm run record:aave` (needs network; a public RPC works). Set `VITE_FORK_RPC` in `.env` to run the
+- Re-record against current mainnet: `npm run record:aave` (needs network; a public RPC works). The same thing without
+  a hand-written recorder: `npx terrarium record pool=… weth=… usdc=… --rpc URL --chain 1 --block N --script warm.mjs`. Set `VITE_FORK_RPC` in `.env` to run the
   scenario online instead of offline: reads the fixture lacks are fetched, and the dev bar no longer counts misses.

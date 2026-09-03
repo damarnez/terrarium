@@ -112,7 +112,12 @@ fork replay. Verified: `npm run e2e`, `npm run test:uniswap`, `npm run test:fork
   hand-written worker scenario; `runScenario` (Worker) provides `ctx` (viem clients, install, chain-clock deadline,
   seeded random, fresh flag, state bag) and the generic `terrarium_actors/status/reset` RPCs.
 - Vite plugin takes `{ scenario }` and generates `.terrarium/{inject,worker}.ts`; CLI `terrarium build` produces the
-  injectable bundle from any scenario, `terrarium fetch-code` makes bytecode fixtures without Foundry.
+  injectable bundle from any scenario, `terrarium fetch-code` makes bytecode fixtures without Foundry (`--block`, `--chain`),
+  `terrarium record` forks a chain at a block, runs a warm-up script and dumps a self-verified offline fixture.
+- HTTP routes (`http.ts`, `defineScenario({ http })`): the page's `fetch` is patched in `inject.ts`; matching requests go
+  to the Worker (`terrarium_http`) where handlers / GraphQL resolvers answer from the chain. Frogpond answers the Uniswap
+  V2 subgraph URL from its own Swap logs, with down / behind controls; the dapp consumes it with plain fetch
+  (`src/lib/useIndexer.ts`). Docs: `docs/http-and-subgraphs.md`, `docs/cookbook.md`, `docs/README.md` (index).
 - Docs: `docs/tutorial-new-protocol.md` (4 steps), `docs/api.md` (everything). Verified: typecheck, plain/injected/CLI
   builds, e2e, test:uniswap, test:fork all PASS.
 - Next (from the second analysis): HTTP mocking + in-Worker indexer (subgraph), mock contracts that can emit/write,

@@ -22,8 +22,9 @@ npm run dev            # http://localhost:5173 → "Connect wallet" → "Terrari
 Add liquidity, swap, remove liquidity through the real router. In the dark bar at the bottom: mine blocks, shift
 time, switch to 3 s blocks, snapshot and revert (chain **and** UI history come back), turn on **Pond life** (bot
 frogs trade against you, one fades your swaps), make the wallet **reject** the next signature, answer **slowly**, or
-deliver receipts **late**. Reload the page: the chain is still there (IndexedDB, inside a Worker). **Reset pond**
-wipes it and redeploys.
+deliver receipts **late**, take the dapp's **indexer down** or put it three blocks **behind** (the Uniswap V2 subgraph
+the dapp queries is answered from the chain in the page). Reload the page: the chain is still there (IndexedDB, inside
+a Worker). **Reset pond** wipes it and redeploys.
 
 ## More examples: real protocols, offline
 | example | what | run |
@@ -48,6 +49,7 @@ address (`anvil_setCode` + storage by variable name), the chain clock, snapshots
 | **Slippage and price impact** | an actor trades a large size in the block before the user's swap (Frogpond's arbitrage frog fades every human swap) | `INSUFFICIENT_OUTPUT_AMOUNT` reaches the user as words; slippage settings actually change the outcome |
 | **Insufficient funds mid-flow** | `sim_deal` the user's balance to zero after the form was filled in (the e2e does this) | the guard before the transaction, and the decoded `TransferHelper: TRANSFER_FROM_FAILED` when it slips through |
 | **No approval, wrong approval** | send without the allowance; approve less than the amount; a token whose `approve` needs a reset to zero first | the approve/act two-step, and what happens when the second step fails |
+| **The indexer is down, or behind the chain** | an `http` route answers the dapp's subgraph / API URL from the chain in the Worker (`graphql` resolvers over the real logs); a control makes it return 503 or answer three blocks late (Frogpond's `Indexer: down / behind` buttons) | the UI says the indexer is unavailable instead of showing an empty "no activity"; the user's own swap does not vanish from recent activity; numbers that gate a transaction come from the chain, not the indexer |
 | **The wallet says no, the wallet is slow, the node lags** | **Reject next tx** (EIP-1193 4001), **Wallet: 2 s delay**, **Receipts: 3 s late** in the dev bar, or `terrarium_setWallet` from a test | pending states, spinners that resolve, no stuck "confirming" |
 | **Interest and time** | **+1 hour**, or `evm_increaseTime(30 days)` + a block | balances that grow, APRs that render, deadlines that expire (a deadline built from `latest` or `Date.now()` fails here, exactly as it would on an idle real chain) |
 | **A reorg-like head that moves backwards** | **Snapshot** → act → **Revert** | history and balances roll back; the dapp polls the head and reloads when the number drops (`usePond.ts`) |
@@ -58,16 +60,25 @@ address (`anvil_setCode` + storage by variable name), the chain clock, snapshots
 
 The tutorial shows how each primitive is used: [docs/tutorial-new-protocol.md](docs/tutorial-new-protocol.md).
 
+## Documentation
+[docs/README.md](docs/README.md) is the index: the [tutorial](docs/tutorial-new-protocol.md) (project anatomy, where the
+bytes come from, four steps), [off-chain data](docs/http-and-subgraphs.md) (subgraphs and APIs answered from the chain),
+the [cookbook](docs/cookbook.md) (every feature, one example) and the [API reference](docs/api.md).
+
 ## Your own protocol in four steps
-See [docs/tutorial-new-protocol.md](docs/tutorial-new-protocol.md): fetch the bytecode (or record a fork), write
-`terrarium.scenario.ts`, add the Vite plugin, run it headless. Every option and RPC method: [docs/api.md](docs/api.md).
+See [docs/tutorial-new-protocol.md](docs/tutorial-new-protocol.md). It starts with what a project looks like folder by
+folder and where every byte the chain executes comes from (fetched code, a recorded fork, or Solidity you compiled), then:
+get the protocol in (`npx terrarium fetch-code` for bytecode, `npx terrarium record --chain 1 --block N` for the state of a
+chain at a block), write `terrarium.scenario.ts`, add the Vite plugin, run it headless. Every option and RPC method:
+[docs/api.md](docs/api.md).
 
 ## How it fits together
 ```
                  ┌──────────────────────── the page ─────────────────────────┐
                  │  src/                 the dapp: viem + EIP-6963 only        │
                  │                       config = chain id + 2 addresses      │
-   injected  ──► │  terrarium/inject     EIP-6963 "Terrarium Wallet" + dev bar│
+   injected  ──► │  terrarium/inject     wallet (EIP-6963) + dev bar + fetch  │
+                 │                         interceptor (subgraph, price APIs) │
    (vite plugin  │        │ postMessage                                        │
    or            │  terrarium/worker  ◄─ runScenario(terrarium.scenario.ts)   │
    addInitScript)│                       on the engine (revm/wasm, blocks,    │
@@ -105,7 +116,8 @@ npm run build:wasm     # rebuild the wasm engine (Rust: rustup target add wasm32
 ```
 The e2e covers: connect via the picker, approve + add liquidity, a deposit with no funds (the real router's
 `TransferHelper: TRANSFER_FROM_FAILED`, decoded), the wallet rejecting a signature (4001), a 2 s wallet delay with a
-visible pending state, swaps both ways, snapshot → swap → revert, LP approval + remove, reload, and Pond life. It is also
+visible pending state, swaps both ways, the subgraph panel listing them and surviving an indexer outage (HTTP 503 from
+the dev bar), snapshot → swap → revert, LP approval + remove, reload, and Pond life. It is also
 the only place the dev bar, the injected wallet and IndexedDB persistence run for real; the unit suite covers everything
 that has a Node equivalent.
 

@@ -1,7 +1,7 @@
 // terrarium.scenario.ts — what the Terrarium does when it boots under Frogpond. Runs inside the Worker.
 // The real Uniswap V2 (mainnet bytecode) at its mainnet addresses, your PEPE, a seeded pool, and three bot frogs.
-import { decodeEventLog, encodeFunctionData, getContractAddress, keccak256, maxUint256, parseAbi, parseEther, toHex, type Address } from 'viem';
-import { defineScenario, type ScenarioContext } from 'terrarium/scenario';
+import { decodeEventLog, encodeFunctionData, formatEther, getContractAddress, keccak256, maxUint256, parseAbi, parseEther, toHex, type Address } from 'viem';
+import { defineScenario, reply, type ScenarioContext } from 'terrarium/scenario';
 import uniswap from 'terrarium/fixtures/uniswap-v2-mainnet.json';
 import { PEPE } from './src/generated/contracts';
 
@@ -15,6 +15,9 @@ const routerAbi = parseAbi([
   'function swapExactTokensForETH(uint256 amountIn, uint256 amountOutMin, address[] path, address to, uint256 deadline) returns (uint256[])',
 ]);
 const factoryAbi = parseAbi(['function getPair(address, address) view returns (address)']);
+const pairAbi = parseAbi(['function getReserves() view returns (uint112, uint112, uint32)']);
+// the indexer the dapp would query on mainnet (VITE_SUBGRAPH_URL): answered here from this chain's own logs and reserves
+const SUBGRAPH = import.meta.env.VITE_SUBGRAPH_URL ?? 'https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v2';
 const swapEvent = parseAbi(['event Swap(address indexed sender, uint256 amount0In, uint256 amount1In, uint256 amount0Out, uint256 amount1Out, address indexed to)']);
 const SWAP_TOPIC = keccak256(toHex('Swap(address,uint256,uint256,uint256,uint256,address)'));
 
@@ -63,8 +66,61 @@ export default defineScenario({
     } },
   ],
 
-  status: (ctx) => ({ addresses: { router: ROUTER, token: TOKEN, weth: ctx.state.weth, factory: ctx.state.factory, pair: ctx.state.pair } }),
+  // ---- the dapp's off-chain reads: a Uniswap V2 subgraph, computed from the chain in this Worker ------------------------
+  // The dapp POSTs the same GraphQL it would send to The Graph on mainnet. There is no indexer in the page, so the scenario
+  // answers `pair` and `swaps` from getReserves() and the pair's Swap logs. Two dev-bar buttons make the indexer fail the
+  // way real ones do: down (HTTP 503) and behind the chain by three blocks.
+  http: [{
+    name: 'uniswap-v2-subgraph',
+    match: SUBGRAPH,
+    handler: (ctx) => (ctx.state.indexer === 'down' ? reply({ message: 'indexer unavailable' }, { status: 503 }) : undefined),   // the gate
+    graphql: {
+      pair: async (ctx, q) => {
+        if (String(q.args.id).toLowerCase() !== String(ctx.state.pair).toLowerCase()) return null;
+        const head = await indexedHead(ctx);
+        const [r0, r1] = await ctx.pub.readContract({ address: ctx.state.pair, abi: pairAbi, functionName: 'getReserves', blockNumber: head });
+        const swaps = await swapLogs(ctx, head);
+        const sum = (k: 'amount0In' | 'amount0Out' | 'amount1In' | 'amount1Out') => swaps.reduce((a, s) => a + s.args[k], 0n);
+        const [t0, t1] = ctx.state.tokenIsToken0 ? [TOKEN, ctx.state.weth] : [ctx.state.weth, TOKEN];
+        return { id: String(ctx.state.pair).toLowerCase(), token0: { id: t0.toLowerCase(), symbol: t0 === TOKEN ? 'PEPE' : 'WETH' }, token1: { id: t1.toLowerCase(), symbol: t1 === TOKEN ? 'PEPE' : 'WETH' },
+          reserve0: formatEther(r0), reserve1: formatEther(r1), txCount: String(swaps.length), volumeToken0: formatEther(sum('amount0In') + sum('amount0Out')), volumeToken1: formatEther(sum('amount1In') + sum('amount1Out')) };
+      },
+      swaps: async (ctx, q) => {
+        const where = (q.args.where ?? {}) as { pair?: string };
+        if (where.pair && where.pair.toLowerCase() !== String(ctx.state.pair).toLowerCase()) return [];
+        const head = await indexedHead(ctx);
+        const logs = await swapLogs(ctx, head);
+        const blocks = new Map<bigint, bigint>();
+        for (const l of logs) if (!blocks.has(l.blockNumber)) blocks.set(l.blockNumber, (await ctx.pub.getBlock({ blockNumber: l.blockNumber })).timestamp);
+        const rows = logs.map((l) => ({ id: `${l.transactionHash}-${l.logIndex}`, timestamp: String(blocks.get(l.blockNumber)), pair: { id: String(ctx.state.pair).toLowerCase() }, sender: l.args.sender, to: l.args.to,
+          amount0In: formatEther(l.args.amount0In), amount1In: formatEther(l.args.amount1In), amount0Out: formatEther(l.args.amount0Out), amount1Out: formatEther(l.args.amount1Out), transaction: { id: l.transactionHash, blockNumber: String(l.blockNumber) }, logIndex: String(l.logIndex) }));
+        if (q.args.orderBy === 'timestamp') rows.sort((a, b) => (Number(b.timestamp) - Number(a.timestamp) || Number(b.logIndex) - Number(a.logIndex)) * (q.args.orderDirection === 'desc' ? 1 : -1));
+        return rows.slice(Number(q.args.skip ?? 0), Number(q.args.skip ?? 0) + Number(q.args.first ?? 100));
+      },
+    },
+  }],
+  methods: {
+    /** how the indexer behaves: 'live' (answers the head), 'behind' (three blocks late), 'down' (HTTP 503). Mines a block so the UI re-queries. */
+    async terrarium_indexer(ctx, mode: 'live' | 'behind' | 'down') { ctx.state.indexer = mode; await ctx.rpc('evm_mine'); return mode; },
+  },
+  controls: [
+    { label: 'Indexer: down', method: 'terrarium_indexer', params: ['down'], title: 'The subgraph answers HTTP 503: what does the UI show while its indexer is unavailable?' },
+    { label: 'Indexer: 3 blocks behind', method: 'terrarium_indexer', params: ['behind'], title: 'The subgraph lags three blocks behind the chain: stale swaps and reserves next to a live head' },
+    { label: 'Indexer: live', method: 'terrarium_indexer', params: ['live'], title: 'The subgraph answers from the current head again' },
+  ],
+
+  status: (ctx) => ({ addresses: { router: ROUTER, token: TOKEN, weth: ctx.state.weth, factory: ctx.state.factory, pair: ctx.state.pair }, indexer: ctx.state.indexer ?? 'live' }),
 });
+
+/** the block the "indexer" has reached: the head, or three blocks behind it */
+async function indexedHead(ctx: ScenarioContext): Promise<bigint> {
+  const head = ctx.sim.blockNumber as bigint;
+  return ctx.state.indexer === 'behind' ? (head > 3n ? head - 3n : 0n) : head;
+}
+/** every Swap on the pair up to `toBlock`, decoded (a real indexer would keep these in a database; this chain is small) */
+async function swapLogs(ctx: ScenarioContext, toBlock: bigint) {
+  return ctx.pub.getContractEvents({ address: ctx.state.pair as Address, abi: swapEvent, eventName: 'Swap', fromBlock: 0n, toBlock, strict: true });
+}
 
 async function frogSwap(ctx: ScenarioContext, frog: Address, direction: 'buy' | 'sell', size: bigint) {
   const deadline = ctx.deadline(600);

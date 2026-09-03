@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Address } from 'viem';
 import { useWallets, type WalletDetail } from './lib/wallet';
 import { usePond, type PoolAddresses } from './lib/usePond';
+import { useIndexer } from './lib/useIndexer';
 import { Chart } from './components/Chart';
 import { VaultStats } from './components/VaultStats';
 import { Activity } from './components/Activity';
+import { Indexer } from './components/Indexer';
 import { Panel } from './components/Panel';
 import { WalletButton } from './components/WalletButton';
 
@@ -17,6 +19,7 @@ export function App({ addresses }: { addresses: PoolAddresses }) {
   const readProvider = wallet?.provider ?? wallets[0]?.provider ?? null;
   const walletCtx = useMemo(() => (wallet && account ? { provider: wallet.provider, account } : null), [wallet, account]);
   const pond = usePond(readProvider, walletCtx, addresses);
+  const indexer = useIndexer(pond.pool?.pair ?? null, pond.block?.number ?? null);   // off-chain data, if a subgraph is configured
 
   useEffect(() => {
     if (!wallet) return;
@@ -49,6 +52,7 @@ export function App({ addresses }: { addresses: PoolAddresses }) {
           <Chart points={pond.prices} />
           <VaultStats stats={pond.stats} connected={!!account} />
           <Activity rows={pond.activity} />
+          <Indexer state={indexer} head={pond.block?.number ?? null} tokenIsToken0={pond.pool?.tokenIsToken0 ?? true} />
         </section>
         <Panel stats={pond.stats} tx={pond.tx} actions={pond.actions} connected={!!account} />
       </main>

@@ -8,13 +8,15 @@ not know it is there.
 | import | what |
 |---|---|
 | `terrarium` / `terrarium/engine` | `createTerrarium(options) → sim`, `indexedDBStorage()`, `TEST_KEYS` — the engine, usable in Node, Vitest, a Worker |
-| `terrarium/scenario` | `defineScenario(config)` + types — what runs in the Worker when the page loads |
+| `terrarium/scenario` | `defineScenario(config)`, `reply()` + types — what runs in the Worker when the page loads, including `http` routes that answer the dapp's subgraph / API calls from the chain |
+| `terrarium/http` | `parseGraphql`, `installHttpInterceptor`, `runRoute` — the HTTP interception layer, for custom hosts and tests |
 | `terrarium/worker` | `runScenario(config)` — the Worker runtime (boot, setup, actors, `terrarium_*` RPCs, provider bridge) |
-| `terrarium/inject` | `startTerrarium(worker)` — page side: EIP-6963 announcement, `window.terrarium`, dev bar |
+| `terrarium/inject` | `startTerrarium(worker)` — page side: EIP-6963 announcement, `window.terrarium`, dev bar, the `fetch` interceptor |
 | `terrarium/bridge` | `serveProvider` / `createWorkerProvider` — the postMessage bridge, for custom hosts |
 | `terrarium/vite` | `terrarium({ scenario? })` — Vite plugin: injects the whole thing into `index.html`; off with `VITE_TERRARIUM=off` |
 | `terrarium/fixtures/uniswap-v2-mainnet.json` | mainnet runtime bytecode of Uniswap V2 Router02, Factory, WETH9, for `ctx.install()` |
-| `npx terrarium build` / `npx terrarium fetch-code` | one injectable script for Playwright & co.; bytecode fixtures from any node |
+| `npx terrarium build` | one injectable script (chain + wallet + dev bar) for Playwright & co. |
+| `npx terrarium fetch-code` / `npx terrarium record` | fixtures from any node: the runtime bytecode of named contracts, or the state of a chain at a block (`--chain`, `--block`, a warm-up `--script`) as an offline fork |
 
 ## Minimal use
 ```ts
@@ -40,7 +42,7 @@ export default defineConfig({
 await page.addInitScript({ path: 'dist-terrarium/terrarium.js' });   // npx terrarium build
 ```
 
-Full reference: [docs/api.md](../../docs/api.md). Tutorial: [docs/tutorial-new-protocol.md](../../docs/tutorial-new-protocol.md).
+Docs: [index](../../docs/README.md) · [tutorial](../../docs/tutorial-new-protocol.md) · [off-chain data](../../docs/http-and-subgraphs.md) · [cookbook](../../docs/cookbook.md) · [API reference](../../docs/api.md).
 
 ## Rules the engine keeps
 - Every state mutation goes through the RPC layer (journaled, persisted); all state work is serialized in one queue.
