@@ -73,21 +73,34 @@ chain at a block), write `terrarium.scenario.ts`, add the Vite plugin, run it he
 [docs/api.md](docs/api.md).
 
 ## How it fits together
+
+```mermaid
+flowchart TB
+  subgraph page["the page"]
+    direction TB
+    dapp["<b>src/</b> — the dapp<br/>viem + EIP-6963 discovery, nothing else<br/><i>.env: chain id, router + token addresses, subgraph URL</i>"]
+    subgraph injected["injected from outside: the Vite plugin in dev, Playwright addInitScript in tests"]
+      direction TB
+      inject["<b>terrarium/inject</b><br/>EIP-6963 “Terrarium Wallet” · dev bar · fetch interceptor"]
+      worker["<b>Worker: terrarium/worker</b> → runScenario(scenario)<br/>engine.js on revm/wasm: blocks, receipts, logs, cheatcodes<br/>state persisted in IndexedDB"]
+      inject -- postMessage --> worker
+    end
+    dapp -- "eth_* requests,<br/>as it would to MetaMask" --> inject
+    dapp -- "fetch to the subgraph / price APIs<br/>(answered from the chain when a route matches)" --> inject
+  end
+  scenario["<b>terrarium.scenario.ts</b><br/>real Uniswap V2 at the mainnet addresses · deploy PEPE · seed the pool<br/>bot-frog actors · subgraph routes · dev-bar controls"] --> worker
+  fixture["<b>terrarium/fixtures/uniswap-v2-mainnet.json</b><br/>mainnet runtime bytecode of Router02, Factory, WETH9"] --> scenario
+  sol["<b>contracts/PEPE.sol</b> → solc → <b>src/generated/contracts.ts</b><br/>abi · bytecode · deployedBytecode · storageLayout"] --> scenario
+  wasm["<b>packages/terrarium-evm</b><br/>revm 43 (Rust) → terrarium_evm_bg.wasm"] --> worker
 ```
-                 ┌──────────────────────── the page ─────────────────────────┐
-                 │  src/                 the dapp: viem + EIP-6963 only        │
-                 │                       config = chain id + 2 addresses      │
-   injected  ──► │  terrarium/inject     wallet (EIP-6963) + dev bar + fetch  │
-                 │                         interceptor (subgraph, price APIs) │
-   (vite plugin  │        │ postMessage                                        │
-   or            │  terrarium/worker  ◄─ runScenario(terrarium.scenario.ts)   │
-   addInitScript)│                       on the engine (revm/wasm, blocks,    │
-                 │                       receipts, logs, cheatcodes, IndexedDB)│
-                 └───────────────────────────────────────────────────────────┘
-packages/terrarium/     the library: engine.js, scenario.ts, worker-runtime.ts, bridge.ts, inject.ts, devbar.ts, vite-plugin.ts, bin/
-packages/terrarium-evm/ the wasm engine: revm 43 (Rust) → pkg/terrarium_evm_bg.wasm, driven by engine.js through a host interface
-terrarium.scenario.ts   the example scenario: real Uniswap V2 + PEPE + bot frogs     contracts/PEPE.sol ──solc──► src/generated/
-```
+
+| where | what |
+|---|---|
+| `packages/terrarium/` | the library: `engine.js` (the chain), `scenario.ts`, `worker-runtime.ts`, `http.ts`, `bridge.ts`, `inject.ts`, `devbar.ts`, `vite-plugin.ts`, `bin/terrarium.mjs` (CLI) |
+| `packages/terrarium-evm/` | the wasm engine: revm 43 compiled from Rust, driven by `engine.js` through a host interface; `pkg/` is committed, no Rust needed |
+| `terrarium.scenario.ts` | the example scenario: what the chain contains when the page loads, and how its subgraph answers |
+| `src/` | Frogpond, an ordinary dapp; `contracts/PEPE.sol` is compiled into `src/generated/` by `npm run build:contracts` |
+
 - **The dapp never imports the simulator.** `src/` is configured by `.env` (`VITE_CHAIN_ID`, `VITE_ROUTER_ADDRESS`,
   `VITE_TOKEN_ADDRESS`, optional `VITE_RPC_URL`) and talks to whatever wallet announces itself. Build with
   `VITE_TERRARIUM=off` and not one byte of the simulator is in the bundle (the e2e asserts this).
