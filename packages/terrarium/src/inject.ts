@@ -5,7 +5,7 @@ import { createWorkerProvider } from './bridge.ts';
 import { mountDevBar } from './devbar.ts';
 import { installHttpInterceptor, type WireRoute } from './http.ts';
 
-const ICON = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#1F6F5C"/><path d="M9 21c0-4 3-8 7-8s7 4 7 8" fill="none" stroke="#E8C547" stroke-width="2.5" stroke-linecap="round"/><circle cx="16" cy="11" r="2.5" fill="#E8C547"/></svg>');
+const ICON = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#1F6F5C"/><path d="M6 25.5c2-6 5.5-8.5 10-8.5s8 2.5 10 8.5" fill="none" stroke="#E8C547" stroke-width="2.5" stroke-linecap="round"/><path d="M16 17.5V9" stroke="#E8C547" stroke-width="2.5" stroke-linecap="round"/><path d="M16 12c0-4.5 3-7 7-7 0 4.5-3 7-7 7Z M16 14.5c0-4.5-3-7-7-7 0 4.5 3 7 7 7Z" fill="#E8C547"/></svg>');
 
 export function startTerrarium(worker: Worker) {
   const provider = createWorkerProvider(worker);
