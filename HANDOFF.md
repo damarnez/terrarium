@@ -120,8 +120,10 @@ fork replay. Verified: `npm run e2e`, `npm run test:uniswap`, `npm run test:fork
   (`src/lib/useIndexer.ts`). Docs: `docs/http-and-subgraphs.md`, `docs/cookbook.md`, `docs/README.md` (index).
 - Docs: `docs/tutorial-new-protocol.md` (4 steps), `docs/api.md` (everything). Verified: typecheck, plain/injected/CLI
   builds, e2e, test:uniswap, test:fork all PASS.
-- Next (from the second analysis): HTTP mocking + in-Worker indexer (subgraph), mock contracts that can emit/write,
-  fork warm-up + offline miss report + oracle override, Aave example, tracing in the dev bar, fixture CLI.
+- Next (from the second analysis, as written then): HTTP mocking + in-Worker indexer (subgraph), mock contracts that can
+  emit/write, fork warm-up + offline miss report + oracle override, Aave example, tracing in the dev bar, fixture CLI.
+  Status (3 Sep 2026): all shipped except tracing and the in-Worker indexer; JS mocks were dropped on purpose. What is
+  open lives in `docs/roadmap.md` from now on.
 
 ## 9. Fourth pass (2 Sep 2026, night) — verifiable blocks + WebAssembly engine
 - **Verifiable headers.** `MerkleStateManager` by default (real `stateRoot`), real transactions trie, receipts trie
@@ -134,8 +136,8 @@ fork replay. Verified: `npm run e2e`, `npm run test:uniswap`, `npm run test:fork
 - **The real bottleneck was never the EVM.** Profiling showed 83 % idle: viem wrapped our revert errors as "unknown" and
   retried 3× (1 s per reverted estimate). Engine and bridge errors now extend viem's BaseError. 14-tx scenario:
   js 2.5 s → 382 ms, revm 115 ms (28 ms inside wasm), Anvil 59 ms.
-- Still JS-only: `mockContract`. Next: mocks that can emit/write (then port to revm via a host callback), HTTP mocking +
-  indexer, fork warm-up/miss report, Aave example, tracing.
+- Still JS-only at the time: `mockContract` (removed in 0.3, mock with bytecode instead). The rest of that list shipped;
+  see `docs/roadmap.md` for what is open.
 - Found by simply running the frontend after an idle hour: the dapp derived deadlines from `latest` and the real router
   said `EXPIRED`. `eth_getBlockByNumber('pending')` now returns the real next block (like geth/Anvil) and the dapp
   derives deadlines from it. Rule recorded in CLAUDE.md and the tutorial.

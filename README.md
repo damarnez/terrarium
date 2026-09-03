@@ -97,6 +97,7 @@ the [cookbook](docs/cookbook.md) (every feature, one example) and the [API refer
 | 🍳 [Cookbook](docs/cookbook.md) | every feature, one paste-able example |
 | 📖 [API reference](docs/api.md) | every option, `sim` member, RPC method, scenario field, plugin option, CLI flag, dev-bar test id |
 | 📦 [terrarium](packages/terrarium/README.md) · [terrarium-evm](packages/terrarium-evm/README.md) | the two packages |
+| 🧭 [Roadmap](docs/roadmap.md) | what is not built yet, in order, and what is deliberately not planned |
 | 🛠️ [CLAUDE.md](CLAUDE.md) · [HANDOFF.md](HANDOFF.md) · [design investigation](docs/design-investigation.md) | operating manual and hard rules; the story pass by pass; the original investigation (historical) |
 
 ## 🧭 Your own protocol in four steps

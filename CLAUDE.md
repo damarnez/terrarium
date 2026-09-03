@@ -105,7 +105,7 @@ npm run build:wasm           # rebuild packages/terrarium-evm/pkg (Rust: wasm32-
 
 ## Where things are
 - Docs index: `docs/README.md`. Tutorial: `docs/tutorial-new-protocol.md` (project anatomy, the three sources of bytes, compiling contracts, CLI recipes, off-chain data step).
-  `docs/http-and-subgraphs.md` (HTTP routes guide), `docs/cookbook.md` (every feature, one example). API reference (all options, sim members, RPC methods, scenario config,
+  `docs/http-and-subgraphs.md` (HTTP routes guide), `docs/cookbook.md` (every feature, one example), `docs/roadmap.md` (open gaps, in order; update it when you close one). API reference (all options, sim members, RPC methods, scenario config,
   plugin, CLI, HTTP routes): `docs/api.md`. Keep all of them in sync with `packages/terrarium/src`; a new feature gets a cookbook recipe and an api.md row.
 - Engine API reference: `docs/design-investigation.md` Appendix A; state/persistence chapter §4b.
 - E2E expectations and numbers: `e2e/frogpond.e2e.mjs`. Unit suite: `test/unit/` (`helpers.mjs` boots a sim with a fixed

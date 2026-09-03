@@ -22,6 +22,7 @@ flowchart LR
 | 🕸️ [Off-chain data: APIs, subgraphs and indexers](http-and-subgraphs.md) | your dapp reads a subgraph or an API | how the dapp's `fetch` is answered from the chain, GraphQL resolvers, the failure modes (down, behind, slow), the Frogpond example |
 | 🍳 [Cookbook](cookbook.md) | you know what you want the chain to do | one paste-able example per feature: money, storage, time, snapshots, actors, wallet failures, forks, persistence, status… |
 | 📖 [API reference](api.md) | you need the exact shape | every `createTerrarium` option, `sim` member, RPC method, scenario field, plugin option, CLI flag, dev-bar test id |
+| 🧭 [Roadmap](roadmap.md) | you wonder what is missing, or want to contribute | the known gaps and the features that would close them, in order, with sizes; what is deliberately not planned |
 | 🔬 [Design investigation](design-investigation.md) | you want to know why it is built this way | the analysis behind the engine choice, state handling, fidelity testing (long; historical) |
 
 ## 🧪 The examples
