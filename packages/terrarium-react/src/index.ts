@@ -1,6 +1,6 @@
-// terrarium-react — mount the Terrarium from a React tree.
+// @terrarium/react — mount the Terrarium from a React tree.
 //
-// The Vite plugin (`terrarium/vite`) is the recommended way in: it injects the chain, wallet and dev bar into index.html
+// The Vite plugin (`@terrarium/core/vite`) is the recommended way in: it injects the chain, wallet and dev bar into index.html
 // and your source never mentions the simulator. This package is for projects that cannot use it (Next.js, Remix, CRA, a
 // Storybook, a design system playground): one component starts the Worker, announces the EIP-6963 wallet and mounts the
 // dev bar; a hook hands the provider to your own dev tools. Guard it with your bundler's constant so it compiles to nothing
@@ -8,11 +8,11 @@
 //
 //   {import.meta.env.DEV && <Terrarium worker={() => new Worker(new URL('./terrarium.worker.ts', import.meta.url), { type: 'module' })} />}
 //
-// where terrarium.worker.ts is three lines: import scenario from './terrarium.scenario'; import { runScenario } from 'terrarium/worker'; runScenario(scenario);
+// where terrarium.worker.ts is three lines: import scenario from './terrarium.scenario'; import { runScenario } from '@terrarium/core/worker'; runScenario(scenario);
 import { createContext, createElement, useContext, useEffect, useState, type ReactNode } from 'react';
-import { startTerrarium, stopTerrarium, type StartOptions } from 'terrarium/inject';
-import { mountDevBar } from 'terrarium/devbar';
-import type { WorkerProvider } from 'terrarium/bridge';
+import { startTerrarium, stopTerrarium, type StartOptions } from '@terrarium/core/inject';
+import { mountDevBar } from '@terrarium/core/devbar';
+import type { WorkerProvider } from '@terrarium/core/bridge';
 
 const Ctx = createContext<WorkerProvider | null>(null);
 

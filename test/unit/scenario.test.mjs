@@ -5,7 +5,7 @@ import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { keccak256, parseEther, toHex } from 'viem';
-import { runScenario } from 'terrarium/worker';
+import { runScenario } from '@terrarium/core/worker';
 import { PEPE, FIXTURE, sleep } from './helpers.mjs';
 
 const posted = [];

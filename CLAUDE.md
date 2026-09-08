@@ -12,18 +12,18 @@ Read HANDOFF.md first for the full story. This file is the short operating manua
   wallet-realism knobs (rejection / latency / receipt lag), a read-only `node` provider, injectable clock + seeded PRNG,
   persistence (IndexedDB / any getItem-setItem store), journal replay, snapshots that roll back everything, fork mode
   with offline fixtures, live block following. No JS-mocked contracts: mock with bytecode (`anvil_setCode` + `setState`).
-- **The library** (`packages/terrarium`, npm workspace, imported as `terrarium/*`): `scenario.ts` (`defineScenario`
+- **The library** (`packages/terrarium`, npm workspace, imported as `@terrarium/core/*`): `scenario.ts` (`defineScenario`
   + types), `worker-runtime.ts` (`runScenario`: boots the engine in a **Worker**, runs setup, wires actors, exposes
   `terrarium_actors/status/reset/httpRoutes/http`), `http.ts` (scenario `http` routes: page-side `fetch` interceptor,
   GraphQL parser, Worker-side dispatch; the dapp's subgraph / API calls answered from the chain), `bridge.ts` +
-  `inject.ts` (postMessage bridge, EIP-6963 "Terrarium Wallet", `window.terrarium`, installs the interceptor), `devbar.ts` (plain-DOM overlay), `vite-plugin.ts` (generates `.terrarium/{inject,worker}.ts`
+  `inject.ts` (postMessage bridge, EIP-6963 "Terrarium Wallet", `window.terrarium`, installs the interceptor), `devbar.ts` (plain-DOM overlay), `vite-plugin.js` (+ `.d.ts`) (generates `.terrarium/{inject,worker}.ts`
   and injects one script), `bin/terrarium.mjs` (CLI: `build` standalone bundle, `fetch-code` bytecode fixtures at
   `--block`/`--chain`, `record` = fork a chain at a block + run a warm-up script + dump an offline fixture, self-verified),
   `fixtures/uniswap-v2-mainnet.json`.
 - **The example scenario** (`terrarium.scenario.ts` at the root): installs the REAL Uniswap V2 at the mainnet
   addresses, deploys PEPE, seeds the pair, declares the bot-frog actors, and answers the Uniswap V2 subgraph URL the
   dapp is configured with (`VITE_SUBGRAPH_URL`) from the chain's logs, with `Indexer: down / behind / live` controls.
-- **terrarium-react** (`packages/terrarium-react`, npm workspace): `<Terrarium worker={() => Worker}>` / `useTerrarium()` /
+- **@terrarium/react** (`packages/terrarium-react`, npm workspace): `<Terrarium worker={() => Worker}>` / `useTerrarium()` /
   `<DevBar>` for React apps that cannot use the Vite plugin (Next.js, Storybook). Relies on `startTerrarium(worker, { devBar })`
   + `stopTerrarium()` in `inject.ts`. It is the one sanctioned way a dapp's source may reference the simulator, behind a
   build-time guard; Frogpond itself never uses it (rule 1). Guide: `docs/integrations.md`.

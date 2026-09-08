@@ -1,6 +1,6 @@
 // engine.js — a self-contained EVM chain that lives inside your frontend.
 //
-// Real EVM bytecode execution (revm compiled to WebAssembly, package `terrarium-evm`) wrapped in an EIP-1193 provider,
+// Real EVM bytecode execution (revm compiled to WebAssembly, package `@terrarium/evm`) wrapped in an EIP-1193 provider,
 // so viem / wagmi / ethers use it exactly like a wallet + node. State (Merkle trie or lazily forked), blocks sealed with
 // real tries and blooms, receipts + logs, filters, Anvil-style cheatcodes, event-reactive "actors", persistence
 // (IndexedDB / any getItem-setItem store / fixtures), journal replay, fork mode with offline fixtures, and following a
@@ -100,12 +100,12 @@ function revertError(r) {
   return new RpcError(-32000, `execution failed: ${kind}`, data);
 }
 
-/** Load the revm/WebAssembly engine (package `terrarium-evm`). In Node the wasm bytes are read from disk; in the browser
+/** Load the revm/WebAssembly engine (package `@terrarium/evm`). In Node the wasm bytes are read from disk; in the browser
  *  the glue resolves the .wasm next to itself (Vite turns that into an asset, or a data URL in the standalone bundle). */
 async function loadRevm(o = {}) {
-  const mod = o.module ?? (await import('terrarium-evm'));
+  const mod = o.module ?? (await import('@terrarium/evm'));
   if (o.wasm) await mod.default({ module_or_path: o.wasm });
-  else if (globalThis.process?.versions?.node) { const fs = await import(/* @vite-ignore */ 'node:' + 'fs'); await mod.default({ module_or_path: fs.readFileSync(new URL('./terrarium_evm_bg.wasm', import.meta.resolve('terrarium-evm'))) }); }
+  else if (globalThis.process?.versions?.node) { const fs = await import(/* @vite-ignore */ 'node:' + 'fs'); await mod.default({ module_or_path: fs.readFileSync(new URL('./terrarium_evm_bg.wasm', import.meta.resolve('@terrarium/evm'))) }); }
   else await mod.default();
   return mod;
 }
@@ -523,7 +523,7 @@ export async function createTerrarium(opts = {}) {
         // --- node -------------------------------------------------------------------------------
         case 'eth_chainId': return hex(chainId);
         case 'net_version': return String(chainId);
-        case 'web3_clientVersion': return 'terrarium/0.3.0';
+        case 'web3_clientVersion': return '@terrarium/core/0.3.0';
         case 'eth_syncing': return false;
         case 'eth_blockNumber': return hex(latest().number);
         case 'eth_getBlockByNumber': { if (params[0] === 'pending') return rpcPendingBlock(!!params[1]); const b = blockByTag(params[0]); return b ? rpcBlock(b, !!params[1]) : null; }

@@ -1,9 +1,37 @@
 {
-  "name": "terrarium",
+  "name": "@terrarium/core",
   "version": "0.3.0",
   "description": "A complete EVM chain inside the page, presented to your dapp as a wallet. revm in WebAssembly, real receipts, byte-identical to Anvil.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/damarnez/terrarium.git",
+    "directory": "packages/terrarium"
+  },
+  "homepage": "https://github.com/damarnez/terrarium#readme",
+  "bugs": "https://github.com/damarnez/terrarium/issues",
+  "keywords": [
+    "ethereum",
+    "evm",
+    "revm",
+    "wasm",
+    "eip-1193",
+    "eip-6963",
+    "wallet",
+    "dapp",
+    "testing",
+    "simulator",
+    "anvil",
+    "vite-plugin",
+    "uniswap"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "terrarium": "./bin/terrarium.mjs"
   },
@@ -16,7 +44,7 @@
     "./devbar": "./src/devbar.ts",
     "./bridge": "./src/bridge.ts",
     "./http": "./src/http.ts",
-    "./vite": "./src/vite-plugin.ts",
+    "./vite": "./src/vite-plugin.js",
     "./fixtures/*": "./fixtures/*"
   },
   "files": [
@@ -32,7 +60,7 @@
     "@ethereumjs/util": "^10.1.3",
     "@ethereumjs/mpt": "^10.1.3",
     "@ethereumjs/rlp": "^10.0.0",
-    "terrarium-evm": "*"
+    "@terrarium/evm": "^0.3.0"
   },
   "peerDependencies": {
     "viem": "^2.0.0",

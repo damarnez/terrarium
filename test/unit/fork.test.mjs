@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { parseAbi, encodeFunctionData, keccak256, pad } from 'viem';
-import { createTerrarium, OfflineStateError } from 'terrarium/engine';
+import { createTerrarium, OfflineStateError } from '@terrarium/core/engine';
 import { boot, FIXTURE, rejects } from './helpers.mjs';
 
 const erc20 = parseAbi(['function balanceOf(address) view returns (uint256)', 'function transfer(address, uint256) returns (bool)']);

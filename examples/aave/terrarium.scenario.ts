@@ -1,7 +1,7 @@
 // The Terrarium behind the Aave example: mainnet state at the recorded block (real Pool, aTokens, oracle, WETH, USDC),
 // the user holding 100 WETH, and a dev-bar control that moves the ETH price by swapping the Chainlink source for a fixed
 // feed — the way to see the health factor react without waiting for the market.
-import { defineScenario } from 'terrarium/scenario';
+import { defineScenario } from '@terrarium/core/scenario';
 import fixture from './fixtures/aave-mainnet.json';
 import { FixedPriceFeed } from './src/generated/contracts';
 import { AAVE, oracleAbi } from './src/protocol';

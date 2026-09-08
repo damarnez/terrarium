@@ -52,8 +52,8 @@ if (cmd === 'build') {
   const root = process.cwd(), out = args.out ?? 'dist-terrarium';
   const scenario = '/' + relative(root, resolve(root, args.scenario ?? 'terrarium.scenario.ts')).split(sep).join('/');
   const dir = resolve(root, '.terrarium'); mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'worker.ts'), `import scenario from '${scenario}';\nimport { runScenario } from 'terrarium/worker';\nrunScenario(scenario);\n`);
-  writeFileSync(join(dir, 'inject-bundle.ts'), `import { startTerrarium } from 'terrarium/inject';\ndeclare const __TERRARIUM_WORKER_SRC__: string;\nstartTerrarium(new Worker(URL.createObjectURL(new Blob([__TERRARIUM_WORKER_SRC__], { type: 'text/javascript' })), { type: 'module' }));\n`);
+  writeFileSync(join(dir, 'worker.ts'), `import scenario from '${scenario}';\nimport { runScenario } from '@terrarium/core/worker';\nrunScenario(scenario);\n`);
+  writeFileSync(join(dir, 'inject-bundle.ts'), `import { startTerrarium } from '@terrarium/core/inject';\ndeclare const __TERRARIUM_WORKER_SRC__: string;\nstartTerrarium(new Worker(URL.createObjectURL(new Blob([__TERRARIUM_WORKER_SRC__], { type: 'text/javascript' })), { type: 'module' }));\n`);
   await build({ root, configFile: false, logLevel: 'warn', define, build: { outDir: out, emptyOutDir: true, target: 'es2022', minify: true, lib: { entry: '.terrarium/worker.ts', formats: ['es'], fileName: () => 'terrarium.worker.js' }, rollupOptions: { output: { codeSplitting: false } } } });
   const outDir = resolve(root, out);
   const workerSrc = readFileSync(join(outDir, 'terrarium.worker.js'), 'utf8');

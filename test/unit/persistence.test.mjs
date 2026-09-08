@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseEther } from 'viem';
-import { createTerrarium } from 'terrarium/engine';
+import { createTerrarium } from '@terrarium/core/engine';
 import { boot, deployPepe, PEPE, memoryStorage, sleep, GENESIS_TS } from './helpers.mjs';
 
 async function populated(extra = {}) {

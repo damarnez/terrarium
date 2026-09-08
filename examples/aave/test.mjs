@@ -4,7 +4,7 @@
 //   node examples/aave/test.mjs
 import { readFileSync } from 'node:fs';
 import { createPublicClient, createWalletClient, custom, defineChain, formatUnits, maxUint256, parseEther } from 'viem';
-import { createTerrarium } from 'terrarium/engine';
+import { createTerrarium } from '@terrarium/core/engine';
 import { AAVE, poolAbi, oracleAbi, erc20Abi } from './src/protocol.ts';
 import { FixedPriceFeed } from './src/generated/contracts.ts';
 

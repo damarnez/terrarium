@@ -8,7 +8,7 @@
 //   npm run test:fork
 import { readFileSync } from 'node:fs';
 import { createPublicClient, createWalletClient, custom, defineChain, parseAbi } from 'viem';
-import { createTerrarium } from 'terrarium/engine';
+import { createTerrarium } from '@terrarium/core/engine';
 
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/fork-mainnet-usdc-swap.json', import.meta.url), 'utf8'));
 const { USDC, WETH, ROUTER, pair, user } = fixture.addresses;

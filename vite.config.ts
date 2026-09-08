@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { terrarium } from 'terrarium/vite';
+import { terrarium } from '@terrarium/core/vite';
 
 export default defineConfig({
   // `terrarium()` injects the simulated chain (terrarium.scenario.ts, run in a Worker), its EIP-6963 wallet and the

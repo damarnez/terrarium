@@ -5,16 +5,16 @@
 **Contents:** [createTerrarium](#createterrariumoptions--sim--terrarium--terrariumengine) · [sim](#sim) · [Verifiable blocks](#verifiable-blocks) ·
 [RPC surface](#rpc-surface-providerrequest-method-params-) · [defineScenario](#definescenarioconfig--terrariumscenario) · [HTTP routes](#http-routes-terrariumhttp) ·
 [Recording a protocol](#recording-a-protocol-the-examples-recipe) · [Vite plugin](#vite-plugin--terrariumvite) · [CLI](#cli--npx-terrarium) · [Bridge](#the-postmessage-bridge--terrariumbridge) ·
-[wasm engine](#the-wasm-engine-package-terrarium-evm) · [Injected page globals](#injected-page-globals) · [terrarium-react](#terrarium-react) · [Tests](#tests)
+[wasm engine](#the-wasm-engine-package-terrariumevm) · [Injected page globals](#injected-page-globals) · [@terrarium/react](#terrariumreact) · [Tests](#tests)
 
-## `createTerrarium(options)` → `sim`  (`terrarium` / `terrarium/engine`)
+## `createTerrarium(options)` → `sim`  (`@terrarium/core` / `@terrarium/core/engine`)
 
 | option | default | meaning |
 |---|---|---|
 | `chainId` | `31337` | chain id reported by `eth_chainId` and used for signing |
 | `hardfork` | `cancun` | EVM rules (`@ethereumjs/common` Hardfork name; passed to revm as the spec) |
-| `engine` | `'revm'` | the only execution engine since 0.3: revm compiled to WebAssembly (package `terrarium-evm`). Any other value throws |
-| `revm` | auto | `{ module?, wasm? }`: a preloaded `terrarium-evm` module and/or the wasm bytes; by default the module is imported and the wasm resolved next to it (Node: read from disk; browser: a Vite asset or a data URL in the standalone bundle) |
+| `engine` | `'revm'` | the only execution engine since 0.3: revm compiled to WebAssembly (package `@terrarium/evm`). Any other value throws |
+| `revm` | auto | `{ module?, wasm? }`: a preloaded `@terrarium/evm` module and/or the wasm bytes; by default the module is imported and the wasm resolved next to it (Node: read from disk; browser: a Vite asset or a data URL in the standalone bundle) |
 | `state` | `'merkle'` | `'merkle'`: Merkle Patricia trie state, real `stateRoot` in every header. `'simple'`: flat maps, slightly faster, placeholder root |
 | `stateRoot` | zero | the placeholder `stateRoot` reported when no trie exists (`state: 'simple'` and fork mode) |
 | `keys` | the 10 Anvil keys | accounts the wallet controls, each funded with 10,000 ETH at genesis |
@@ -74,7 +74,7 @@ funds) gets a failed receipt with `droppedReason` instead, so `waitForTransactio
 - **Scenario runtime** (when run through `runScenario`): `terrarium_actors(on?)` → enabled, `terrarium_status()` → `{ chainId, engine, block, accounts, actors, actorsLabel, hasActors, wallet, controls, restoredFromPersistence, localBlocks, fork: null | { blockNumber, offline, misses }, http: { routes, hits }, ...status(ctx) }`, `terrarium_reset()` (stops actors and timers, **clears the whole IndexedDB store** of this origin, returns true; the dev bar reloads), `terrarium_httpRoutes()` → the scenario's `http` routes in wire form, `terrarium_http(index, { url, method, headers?, body? })` → `{ status, headers, body }` (runs one route; what the patched `fetch` calls), plus anything in `methods`.
 - Errors carry EIP-1193 / JSON-RPC codes and extend viem's `BaseError`: `3` execution reverted (with revert `data`), `4001` user rejected, `4100` unauthorized (unknown signer, or a wallet method on `node`), `4902` unknown chain, `-32000` node errors (`no key for 0x…`, `filter not found`), `-32601` unknown method. viem decodes them unchanged and does not retry them.
 
-## `defineScenario(config)`  (`terrarium/scenario`)
+## `defineScenario(config)`  (`@terrarium/core/scenario`)
 | field | meaning |
 |---|---|
 | `chainId`, `seed`, `hardfork`, `state`, `gasEstimation`, `wallet` | passed to `createTerrarium` |
@@ -95,7 +95,7 @@ client signing with the sim's keys), `wait(hashOrPromise)`, `deadline(seconds = 
 `firstBoot` (nothing persisted yet, even if a fixture was restored: the once-only hook for fork scenarios), `codeAt(address)`,
 `install(fixture)` (writes each contract's code only where there is none), `state` (free-form bag).
 
-## HTTP routes  (`terrarium/http`)
+## HTTP routes  (`@terrarium/core/http`)
 The page's `fetch` is patched by `startTerrarium`; requests matching a scenario `http` route are posted to the Worker and
 answered there, everything else goes to the network. Full guide: [http-and-subgraphs.md](http-and-subgraphs.md).
 
@@ -109,7 +109,7 @@ answered there, everything else goes to the network. Full guide: [http-and-subgr
 
 `req: HttpRequest = { url, method, headers, body: string | null, json, query }`. `q: GraphqlQuery = { field, alias, args, selection,
 variables, operationName, query }` (variables substituted and defaults applied; enums as strings; fragments not expanded).
-`reply` is exported from `terrarium/scenario`. `terrarium/http` also exports `parseGraphql(source, variables?, operationName?)`,
+`reply` is exported from `@terrarium/core/scenario`. `@terrarium/core/http` also exports `parseGraphql(source, variables?, operationName?)`,
 `compileMatcher(wireRoute)`, `installHttpInterceptor(provider, routesPromise, scope = globalThis)` → restore function, `runRoute(ctx, route, raw)`,
 `toWire(routes)`. The Worker posts `{ event: 'httpRoutes', payload }` before booting so the page can start intercepting immediately;
 a handler that throws is answered as a 500 with `{ error }` and a console warning. Only `fetch` is intercepted (not XHR or WebSocket).
@@ -123,7 +123,7 @@ a handler that throws is answered as a 500 with `{ error }` and a console warnin
    bar as `N MISSES` and in `sim.offlineMisses`: warm that read in the recorder and re-record.
 See `examples/aave/record.mjs` and `examples/euler/record.mjs`, and the tutorial's step 1B.
 
-## Vite plugin  (`terrarium/vite`)
+## Vite plugin  (`@terrarium/core/vite`)
 `terrarium({ scenario?: 'terrarium.scenario.ts' })`. Generates `.terrarium/{inject,worker}.ts` (gitignore it) and
 injects one module script into `index.html`. Disabled when `VITE_TERRARIUM=off` (env file or environment). The host
 config also needs `define: { 'process.env.DEBUG': 'undefined', 'process.env.TERRARIUM_DEBUG': 'undefined' }` (ethereumjs
@@ -146,13 +146,13 @@ depends on `debug`, which reads `process.env` in the browser), `worker: { format
   file with the network forbidden and reads the named accounts back; a fixture that cannot replay is not written (exit 1).
   Consumed by a scenario as `fork: { blockNumber: fixture.blockNumber, offline: true }, restore: fixture.dump, clock: 'recording'`.
 
-## The postMessage bridge  (`terrarium/bridge`)
+## The postMessage bridge  (`@terrarium/core/bridge`)
 `serveProvider(provider)` (Worker side) answers `{ id, method, params }` messages and forwards `message`, `accountsChanged`,
 `chainChanged`, `disconnect` events; it posts `{ event: 'ready' }` first. `createWorkerProvider(worker)` (page side) is
 the EIP-1193 facade: requests made before `ready` are queued; errors come back as `ProviderRpcError` (a viem `BaseError`
 with `code` and `data`). `runScenario` and `startTerrarium` use these; you only need them for a custom host.
 
-## The wasm engine package (`terrarium-evm`)
+## The wasm engine package (`@terrarium/evm`)
 `packages/terrarium-evm`: revm 43 compiled to `wasm32-unknown-unknown` with wasm-bindgen (`--target web`), no C
 dependencies (k256 / ark / pure-Rust KZG fallbacks). `engine.js` drives it; you normally never call it directly.
 - `init({ module_or_path })` (default export): instantiate; bytes, URL or Response. `engine.js` passes bytes in Node and
@@ -170,10 +170,10 @@ dependencies (k256 / ark / pure-Rust KZG fallbacks). `engine.js` drives it; you 
 - Build: `npm run build:wasm` = `cargo build --release --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir pkg`.
 
 ## Injected page globals
-`startTerrarium(worker, { devBar? })` from `terrarium/inject` wires a Worker up as the wallet, sets the globals below and
+`startTerrarium(worker, { devBar? })` from `@terrarium/core/inject` wires a Worker up as the wallet, sets the globals below and
 mounts the dev bar (`devBar: false` skips it); it returns the provider. Starting again replaces the previous instance.
 `stopTerrarium()` undoes it: stops announcing, terminates the Worker, removes the dev bar and `window.terrarium`.
-`mountDevBar(provider)` from `terrarium/devbar` mounts only the bar over any provider answering the `terrarium_*` methods.
+`mountDevBar(provider)` from `@terrarium/core/devbar` mounts only the bar over any provider answering the `terrarium_*` methods.
 
 `window.terrarium = { provider, request(method, params) }`: the wallet's own global, like `window.ethereum`. For tests
 and the console, never for the dapp. `window.fetch` is replaced by the HTTP interceptor when the scenario declares
@@ -181,7 +181,7 @@ and the console, never for the dapp. `window.fetch` is replaced by the HTTP inte
 buttons carrying `data-testid`s: `block` (the head counter), `mine plus-hour mining snapshot actors reject-next
 wallet-latency receipt-lag reset`, and `control-<i>` for the scenario's `controls` in order.
 
-## `terrarium-react`
+## `@terrarium/react`
 A separate package (`packages/terrarium-react`, peer dependencies `react >= 18` and `terrarium`) for React projects that
 cannot use the Vite plugin. Guide with the Next.js and Storybook recipes: [integrations.md](integrations.md).
 
@@ -197,7 +197,7 @@ Your source references the simulator with this package; guard the element with a
 ## Tests
 `npm test` = `test:unit` (Node's test runner, `test/unit/*.test.mjs`, no network, no Foundry: chain, transactions,
 cheatcodes, state fabrication, logs and actors, wallet, persistence, fork mode with a local fake node, the wasm engine,
-the scenario runtime, HTTP routes (parser, Worker dispatch, page interceptor), the bridge, the Vite plugin, `terrarium-react`
+the scenario runtime, HTTP routes (parser, Worker dispatch, page interceptor), the bridge, the Vite plugin, `@terrarium/react`
 (SSR inertness, start/stop of the inject entry), the CLI including a standalone build) + `test:fork` + `test:examples`.
 Separately: `test:uniswap` (differential vs Anvil, needs Foundry) and `e2e` (headless Chromium: the dev bar, IndexedDB
 persistence and the injected wallet, which have no Node equivalent).

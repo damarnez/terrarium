@@ -10,7 +10,7 @@ import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { createPublicClient, createWalletClient, custom, http, defineChain, parseAbi, parseEther, decodeErrorResult, encodeFunctionData, encodeDeployData, keccak256, maxUint256, numberToHex, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { createTerrarium, TEST_KEYS } from 'terrarium/engine';
+import { createTerrarium, TEST_KEYS } from '@terrarium/core/engine';
 import { createBlockHeaderFromRPC, genTransactionsTrieRoot } from '@ethereumjs/block';
 import { createTxFromRPC } from '@ethereumjs/tx';
 import { MerklePatriciaTrie } from '@ethereumjs/mpt';
@@ -18,7 +18,7 @@ import { RLP } from '@ethereumjs/rlp';
 import { Common, Hardfork, Mainnet } from '@ethereumjs/common';
 import { bytesToHex, hexToBytes } from '@ethereumjs/util';
 
-const fixture = JSON.parse(readFileSync(new URL(import.meta.resolve('terrarium/fixtures/uniswap-v2-mainnet.json')), 'utf8'));
+const fixture = JSON.parse(readFileSync(new URL(import.meta.resolve('@terrarium/core/fixtures/uniswap-v2-mainnet.json')), 'utf8'));
 const PEPE = JSON.parse(readFileSync(new URL('../contracts/out/PEPE.json', import.meta.url), 'utf8'));
 const FACTORY = fixture.contracts.factory.address, ROUTER = fixture.contracts.router.address, WETH = fixture.contracts.weth.address;
 

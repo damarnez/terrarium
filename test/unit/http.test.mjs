@@ -4,9 +4,9 @@
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseEther } from 'viem';
-import { runScenario } from 'terrarium/worker';
-import { createWorkerProvider, serveProvider } from 'terrarium/bridge';
-import { compileMatcher, installHttpInterceptor, parseGraphql, reply } from 'terrarium/http';
+import { runScenario } from '@terrarium/core/worker';
+import { createWorkerProvider, serveProvider } from '@terrarium/core/bridge';
+import { compileMatcher, installHttpInterceptor, parseGraphql, reply } from '@terrarium/core/http';
 import { PEPE } from './helpers.mjs';
 
 const posted = [];

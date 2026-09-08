@@ -1,8 +1,8 @@
 // terrarium.scenario.ts — what the Terrarium does when it boots under Frogpond. Runs inside the Worker.
 // The real Uniswap V2 (mainnet bytecode) at its mainnet addresses, your PEPE, a seeded pool, and three bot frogs.
 import { decodeEventLog, encodeFunctionData, formatEther, getContractAddress, keccak256, maxUint256, parseAbi, parseEther, toHex, type Address } from 'viem';
-import { defineScenario, reply, type ScenarioContext } from 'terrarium/scenario';
-import uniswap from 'terrarium/fixtures/uniswap-v2-mainnet.json';
+import { defineScenario, reply, type ScenarioContext } from '@terrarium/core/scenario';
+import uniswap from '@terrarium/core/fixtures/uniswap-v2-mainnet.json';
 import { PEPE } from './src/generated/contracts';
 
 const ROUTER = (import.meta.env.VITE_ROUTER_ADDRESS ?? uniswap.contracts.router.address) as Address;

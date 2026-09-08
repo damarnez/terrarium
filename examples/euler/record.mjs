@@ -4,7 +4,7 @@
 //   npm run record:euler
 import { writeFileSync } from 'node:fs';
 import { createPublicClient, createWalletClient, custom, defineChain, formatUnits, maxUint256, parseEther } from 'viem';
-import { createTerrarium } from 'terrarium/engine';
+import { createTerrarium } from '@terrarium/core/engine';
 import { EULER, vaultAbi, evcAbi, erc20Abi, apyPercent } from './src/protocol.ts';
 
 const RPC = process.env.FORK_RPC ?? 'https://ethereum-rpc.publicnode.com';

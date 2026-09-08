@@ -1,9 +1,38 @@
 {
-  "name": "terrarium-react",
+  "name": "@terrarium/react",
   "version": "0.3.0",
   "description": "Mount the Terrarium (chain in a Worker, EIP-6963 wallet, dev bar) from a React tree, for projects that cannot use the Vite plugin.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/damarnez/terrarium.git",
+    "directory": "packages/terrarium-react"
+  },
+  "homepage": "https://github.com/damarnez/terrarium#readme",
+  "bugs": "https://github.com/damarnez/terrarium/issues",
+  "keywords": [
+    "ethereum",
+    "evm",
+    "revm",
+    "wasm",
+    "eip-1193",
+    "eip-6963",
+    "wallet",
+    "dapp",
+    "testing",
+    "simulator",
+    "anvil",
+    "react",
+    "nextjs",
+    "storybook"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": "./src/index.ts"
   },
@@ -12,6 +41,6 @@
   ],
   "peerDependencies": {
     "react": ">=18",
-    "terrarium": "*"
+    "@terrarium/core": "^0.3.0"
   }
 }

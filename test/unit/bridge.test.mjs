@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BaseError } from 'viem';
-import { createWorkerProvider, ProviderRpcError, serveProvider } from 'terrarium/bridge';
+import { createWorkerProvider, ProviderRpcError, serveProvider } from '@terrarium/core/bridge';
 import { boot, rejects } from './helpers.mjs';
 
 /** a fake Worker: page → worker goes to globalThis.onmessage (what serveProvider installs), worker → page comes back through onmessage */

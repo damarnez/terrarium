@@ -13,7 +13,7 @@ If you pick one up, open with a note in HANDOFF.md so the next person knows.
 | 3 | [Tracing in the dev bar](#3-tracing-in-the-dev-bar) | "my transaction reverted" has no call tree, no frame, no gas per call | L |
 | 4 | [Prague hardfork and the modern wallet surface](#4-prague-hardfork-and-the-modern-wallet-surface) | Cancun rules while mainnet is on Prague; no EIP-7702, no EIP-5792 batched calls; constant base fee | M |
 | 5 | [Boot and estimation speed](#5-boot-and-estimation-speed) | page load is dominated by wasm instantiation, restore and setup; estimation runs the tx many times | M |
-| 6 | [`npx terrarium init` and an npm release](#6-npx-terrarium-init-and-an-npm-release) | starting a new project is a manual copy from this repo; the package is workspace-only | S |
+| 6 | [`npx terrarium init`](#6-npx-terrarium-init-and-an-npm-release) | starting a new project is a manual copy from this repo (the npm release itself is done: `@terrarium/core`, `@terrarium/evm`, `@terrarium/react`) | S |
 | 7 | [A typed `sim`](#7-a-typed-sim) | `ctx.sim` is `any`; no autocompletion where users spend their time | S |
 | 8 | [HTTP layer, one step further](#8-http-layer-one-step-further) | no latency / failure knobs for routes, no request log, every subgraph field is hand-written | M |
 | 9 | [Fidelity beyond Uniswap](#9-fidelity-beyond-uniswap) | the differential test covers one DEX scenario | M |
@@ -69,9 +69,11 @@ not verify headers; batch persistence writes during `setup`. Execution itself is
 ## 6. `npx terrarium init` and an npm release
 
 Scaffold a project: `terrarium.scenario.ts` with the Uniswap fixture, a `vite.config.ts` with the plugin and the
-`define` block, `.env`, `.gitignore` entries, and an `npm run e2e` skeleton. Publish `terrarium` and `terrarium-evm` to npm
-with the wasm inside; today the package works only as a workspace. Both are small and remove the first hour of friction
-the tutorial currently has to explain.
+`define` block, `.env`, `.gitignore` entries, and an `npm run e2e` skeleton. The npm side is done: `@terrarium/core`,
+`@terrarium/evm` (wasm inside) and `@terrarium/react` publish from the workspaces (`npm publish -w @terrarium/evm`, then `core`,
+then `react`; `publishConfig.access` is public, inter-package ranges are pinned to `^0.3.0`). The Vite plugin is plain JS
+(`vite-plugin.js` + `.d.ts`) because Node will not type-strip a `.ts` file inside a consumer's `node_modules`; the other
+`.ts` entries are browser code that a bundler transpiles. The scaffold is what remains.
 
 ## 7. A typed `sim`
 

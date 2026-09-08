@@ -83,7 +83,7 @@ A review found the engine sound but the packaging around it self-defeating: a be
 protocol, a wallet that could never fail, a boundary that leaked, no fork demo, fragile persistence, nothing
 deterministic, and no positioning. All eight points were addressed:
 1. **Real Uniswap V2.** `Frogpond.sol` is gone. The scenario installs the mainnet runtime bytecode of Router02,
-   Factory and WETH9 at their mainnet addresses (`terrarium/fixtures/`, fetched with `cast code`); the dapp uses the
+   Factory and WETH9 at their mainnet addresses (`@terrarium/core/fixtures/`, fetched with `cast code`); the dapp uses the
    Router02/Pair ABIs. PEPE stays as "your contract".
 2. **Inverted integration.** `src/` has zero knowledge of the simulator. The Terrarium is injected by a Vite plugin
    (dev) or Playwright `addInitScript` (e2e, against the `VITE_TERRARIUM=off` build). The dev bar is a plain-DOM
@@ -106,8 +106,8 @@ Uniswap swaps run out of gas (price accumulators). Fixed in `pendingBlock()`; ca
 fork replay. Verified: `npm run e2e`, `npm run test:uniswap`, `npm run test:fork` all PASS.
 
 ## 8. Third pass (2 Sep 2026, night) — package split + scenario API
-- `packages/terrarium` (npm workspace, imported as `terrarium`, `terrarium/scenario`, `terrarium/worker`,
-  `terrarium/inject`, `terrarium/vite`, `terrarium/fixtures/*`): engine + injected layer + Vite plugin + CLI.
+- `packages/terrarium` (npm workspace, imported as `@terrarium/core`, `@terrarium/core/scenario`, `@terrarium/core/worker`,
+  `@terrarium/core/inject`, `@terrarium/core/vite`, `@terrarium/core/fixtures/*`): engine + injected layer + Vite plugin + CLI.
 - `defineScenario({ chainId, seed, persist, setup(ctx), actors, actorsLabel, status, methods })` replaces the
   hand-written worker scenario; `runScenario` (Worker) provides `ctx` (viem clients, install, chain-clock deadline,
   seeded random, fresh flag, state bag) and the generic `terrarium_actors/status/reset` RPCs.
@@ -118,7 +118,7 @@ fork replay. Verified: `npm run e2e`, `npm run test:uniswap`, `npm run test:fork
   to the Worker (`terrarium_http`) where handlers / GraphQL resolvers answer from the chain. Frogpond answers the Uniswap
   V2 subgraph URL from its own Swap logs, with down / behind controls; the dapp consumes it with plain fetch
   (`src/lib/useIndexer.ts`). Docs: `docs/http-and-subgraphs.md`, `docs/cookbook.md`, `docs/README.md` (index).
-- `terrarium-react` (`packages/terrarium-react`): `<Terrarium worker>`, `useTerrarium`, `<DevBar>` for React apps off Vite;
+- `@terrarium/react` (`packages/terrarium-react`): `<Terrarium worker>`, `useTerrarium`, `<DevBar>` for React apps off Vite;
   `inject.ts` gained `{ devBar }` and `stopTerrarium()`. Docs: `docs/integrations.md`.
 - Docs: `docs/tutorial-new-protocol.md` (4 steps), `docs/api.md` (everything). Verified: typecheck, plain/injected/CLI
   builds, e2e, test:uniswap, test:fork all PASS.

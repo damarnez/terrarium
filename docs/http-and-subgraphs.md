@@ -59,7 +59,7 @@ Three things worth knowing about the mechanics:
 ## 🧭 Declaring routes
 
 ```ts
-import { defineScenario, reply } from 'terrarium/scenario';
+import { defineScenario, reply } from '@terrarium/core/scenario';
 
 export default defineScenario({
   // …
@@ -245,9 +245,9 @@ JSON.parse(res.body).data.pair.txCount;                                  // what
 (await rpc('terrarium_status')).http;                                    // { routes, hits }
 ```
 
-**In Node**, `runScenario` from `terrarium/worker` boots the scenario without a page, and `terrarium_http` works the
+**In Node**, `runScenario` from `@terrarium/core/worker` boots the scenario without a page, and `terrarium_http` works the
 same way; `test/unit/http.test.mjs` does this, and also exercises the page side by installing the interceptor on a fake
-`fetch`. The parser is exported from `terrarium/http` (`parseGraphql`) if you want to unit-test a resolver's inputs.
+`fetch`. The parser is exported from `@terrarium/core/http` (`parseGraphql`) if you want to unit-test a resolver's inputs.
 
 ## 📏 Limits and rules
 
@@ -273,10 +273,10 @@ same way; `test/unit/http.test.mjs` does this, and also exercises the page side 
 | where | what |
 |---|---|
 | `defineScenario({ http })` | `HttpRoute[]`: `{ name?, match: string \| RegExp, method?, handler?(ctx, req), graphql?: { field: (ctx, q) => … } }` |
-| `reply(body, { status?, headers? })` from `terrarium/scenario` | an explicit answer; a string body is `text/plain`, anything else JSON |
+| `reply(body, { status?, headers? })` from `@terrarium/core/scenario` | an explicit answer; a string body is `text/plain`, anything else JSON |
 | `terrarium_httpRoutes()` | the wire form of the routes: `[{ index, name, match: string \| { regex, flags }, method }]` |
 | `terrarium_http(index, { url, method, headers?, body? })` | run one route; returns `{ status, headers, body }` |
 | `terrarium_status().http` | `{ routes, hits }` |
-| `terrarium/http` | `parseGraphql(source, variables?, operationName?)`, `compileMatcher`, `installHttpInterceptor(provider, routesPromise, scope?)`, `runRoute(ctx, route, raw)` for custom hosts and tests |
+| `@terrarium/core/http` | `parseGraphql(source, variables?, operationName?)`, `compileMatcher`, `installHttpInterceptor(provider, routesPromise, scope?)`, `runRoute(ctx, route, raw)` for custom hosts and tests |
 
 Next: the [cookbook](cookbook.md) for every other feature, one example each; the [API reference](api.md) for the exact shapes.

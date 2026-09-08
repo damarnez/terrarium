@@ -8,7 +8,7 @@
 //   npm run test:fork:record            (FORK_RPC=https://... to use another endpoint)
 import { writeFileSync } from 'node:fs';
 import { createPublicClient, createWalletClient, custom, defineChain, parseAbi, maxUint256 } from 'viem';
-import { createTerrarium } from 'terrarium/engine';
+import { createTerrarium } from '@terrarium/core/engine';
 
 const RPC = process.env.FORK_RPC ?? 'https://ethereum-rpc.publicnode.com';
 const USDC = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', ROUTER = '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D', FACTORY = '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f';

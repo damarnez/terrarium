@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { terrarium, workerEntry } from 'terrarium/vite';
+import { terrarium, workerEntry } from '@terrarium/core/vite';
 
 const config = (root, mode = 'development') => ({ root, mode, envDir: root, logger: { info() {} } });
 
@@ -13,7 +13,7 @@ test('enabled: writes .terrarium/{inject,worker}.ts and injects one module scrip
   const plugin = terrarium();
   assert.equal(plugin.name, 'terrarium');
   plugin.configResolved(config(root));
-  assert.match(readFileSync(join(root, '.terrarium/worker.ts'), 'utf8'), /import scenario from '\/terrarium\.scenario\.ts';\s*import \{ runScenario \} from 'terrarium\/worker';\s*runScenario\(scenario\);/);
+  assert.match(readFileSync(join(root, '.terrarium/worker.ts'), 'utf8'), /import scenario from '\/terrarium\.scenario\.ts';\s*import \{ runScenario \} from '@terrarium\/core\/worker';\s*runScenario\(scenario\);/);
   assert.match(readFileSync(join(root, '.terrarium/inject.ts'), 'utf8'), /startTerrarium\(new Worker\(new URL\('\.\/worker\.ts', import\.meta\.url\), \{ type: 'module' \}\)\)/);
   const out = plugin.transformIndexHtml.handler('<html><body></body></html>');
   assert.deepEqual(out.tags, [{ tag: 'script', attrs: { type: 'module', src: '/.terrarium/inject.ts' }, injectTo: 'body' }]);
@@ -25,7 +25,7 @@ test('a custom scenario path is resolved relative to the root', () => {
   const plugin = terrarium({ scenario: 'scenarios/other.scenario.ts' });
   plugin.configResolved(config(root));
   assert.match(readFileSync(join(root, '.terrarium/worker.ts'), 'utf8'), /from '\/scenarios\/other\.scenario\.ts'/);
-  assert.equal(workerEntry('/x.ts'), "import scenario from '/x.ts';\nimport { runScenario } from 'terrarium/worker';\nrunScenario(scenario);\n");
+  assert.equal(workerEntry('/x.ts'), "import scenario from '/x.ts';\nimport { runScenario } from '@terrarium/core/worker';\nrunScenario(scenario);\n");
 });
 
 test('VITE_TERRARIUM=off in an env file disables everything: no files, html untouched', () => {

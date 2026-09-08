@@ -5,7 +5,7 @@
 //   npm run record:aave          (FORK_RPC=https://... for another endpoint)
 import { writeFileSync } from 'node:fs';
 import { createPublicClient, createWalletClient, custom, defineChain, formatUnits, maxUint256, parseEther } from 'viem';
-import { createTerrarium } from 'terrarium/engine';
+import { createTerrarium } from '@terrarium/core/engine';
 import { AAVE, poolAbi, providerAbi, oracleAbi, erc20Abi } from './src/protocol.ts';
 
 const RPC = process.env.FORK_RPC ?? 'https://ethereum-rpc.publicnode.com';
