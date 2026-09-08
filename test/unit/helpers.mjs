@@ -29,4 +29,6 @@ export async function deployPepe(t, from = t.accounts[9], supply = parseEther('1
 export const memoryStorage = () => { const m = new Map(); return { getItem: async (k) => m.get(k) ?? null, setItem: async (k, v) => { m.set(k, v); }, removeItem: async (k) => { m.delete(k); }, clear: async () => m.clear(), map: m }; };
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** poll until `cond()` is truthy (timers under CPU load fire late: assert on the condition, not on a fixed sleep) */
+export const until = async (cond, ms = 3000, what = 'condition') => { const end = Date.now() + ms; while (!(await cond())) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await sleep(5); } };
 export const rejects = async (p, check) => { try { await p; } catch (e) { check(e); return e; } throw new Error('expected a rejection'); };

@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseEther } from 'viem';
 import { createTerrarium } from '@terrariumlabs/core/engine';
-import { boot, deployPepe, PEPE, memoryStorage, sleep, GENESIS_TS } from './helpers.mjs';
+import { boot, deployPepe, PEPE, memoryStorage, sleep, GENESIS_TS, until } from './helpers.mjs';
 
 async function populated(extra = {}) {
   const t = await boot(extra);
@@ -37,8 +37,7 @@ test('dumpState → restore: blocks, receipts, logs, code and balances come back
 test('persist: auto-saved after a debounce, flush() forces it, a second boot restores from the store', async () => {
   const storage = memoryStorage();
   const { t, pepe } = await populated({ persist: { storage, debounceMs: 10 } });
-  await sleep(40);
-  assert.ok(storage.map.has('terrarium:31337'), 'default key');
+  await until(() => storage.map.has('terrarium:31337'), 3000, 'the debounced auto-save'); assert.ok(storage.map.has('terrarium:31337'), 'default key');
   await t.rpc('evm_mine'); await t.sim.flush();
   assert.equal(JSON.parse(storage.map.get('terrarium:31337')).chain.blocks.length, 5);
   const b = await boot({ persist: { storage } });

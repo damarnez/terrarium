@@ -5,7 +5,7 @@ import { parseEther } from 'viem';
 import { createBlockHeaderFromRPC } from '@ethereumjs/block';
 import { Common, Hardfork, Mainnet } from '@ethereumjs/common';
 import { bytesToHex } from '@ethereumjs/util';
-import { boot, GENESIS_TS, sleep } from './helpers.mjs';
+import { boot, GENESIS_TS, sleep, until } from './helpers.mjs';
 
 test('genesis: block 0 at the injected clock, funded accounts, chain id everywhere', async () => {
   const t = await boot({ chainId: 8453 });
@@ -55,9 +55,7 @@ test('manual mining: transactions wait in the pending block until evm_mine', asy
 test('interval mining mines on its own; instant mode stops the timer', async () => {
   const t = await boot();
   await t.rpc('evm_setIntervalMining', [20]);
-  await sleep(120);
-  const n = Number(await t.rpc('eth_blockNumber'));
-  assert.ok(n >= 2, `expected blocks from the interval, got ${n}`);
+  await until(async () => Number(await t.rpc('eth_blockNumber')) >= 2, 3000, 'two blocks from the interval');
   await t.rpc('evm_setAutomine', [true]);   // the dev bar's "Blocks: instant"
   const after = Number(await t.rpc('eth_blockNumber'));
   await sleep(80);

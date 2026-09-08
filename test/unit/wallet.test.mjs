@@ -53,7 +53,7 @@ test('rejectNext: the next N signatures fail with 4001, reads are unaffected, th
 test('latencyMs delays wallet methods only; receiptLagMs hides receipts for a while; initial knobs from options', async () => {
   const t = await boot({ wallet: { latencyMs: 120, receiptLagMs: 150 } });
   assert.deepEqual(await t.rpc('terrarium_getWallet'), { rejectNext: 0, latencyMs: 120, receiptLagMs: 150 });
-  let t0 = Date.now(); await t.rpc('eth_blockNumber'); assert.ok(Date.now() - t0 < 60, 'node reads are instant');
+  let t0 = Date.now(); await t.rpc('eth_blockNumber'); assert.ok(Date.now() - t0 < 100, 'node reads skip the wallet latency (120 ms)');
   t0 = Date.now(); const hash = await t.rpc('eth_sendTransaction', [{ from: t.accounts[0], to: t.accounts[1], value: '0x1' }]); assert.ok(Date.now() - t0 >= 120);
   assert.equal(await t.rpc('eth_getTransactionReceipt', [hash]), null, 'mined, but the node has not caught up');
   await sleep(170);

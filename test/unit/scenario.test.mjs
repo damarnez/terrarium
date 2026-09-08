@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { keccak256, parseEther, toHex } from 'viem';
 import { runScenario } from '@terrariumlabs/core/worker';
-import { PEPE, FIXTURE, sleep, memoryStorage } from './helpers.mjs';
+import { PEPE, FIXTURE, sleep, until, memoryStorage } from './helpers.mjs';
 
 const posted = [];
 before(() => { globalThis.postMessage = (m) => posted.push(m); });
@@ -54,10 +54,9 @@ test('actors: off by default, toggled together, timers and log reactions, errors
     assert.equal(await rpc('terrarium_x', [3]), 30, 'methods receive ctx then params');
     await sleep(40); assert.equal(ticks, 0, 'off by default');
     assert.equal(await rpc('terrarium_actors'), true);
-    await sleep(60); assert.ok(ticks >= 2); assert.ok(failures >= 1, 'a throwing actor is logged, not fatal');
+    await until(() => ticks >= 2 && failures >= 1, 3000, 'two ticks and one logged failure (a throwing actor is logged, not fatal)');
     await rpc('eth_sendTransaction', [{ from: sim.accounts[9].address, to: pepeAddr(sim), data: '0xa9059cbb' + sim.accounts[1].address.slice(2).padStart(64, '0') + (1n).toString(16).padStart(64, '0') }]);
-    await sleep(5);
-    assert.equal(reactions.length, 1);
+    await until(() => reactions.length >= 1, 3000, 'the log reaction'); assert.equal(reactions.length, 1);
     assert.equal(await rpc('terrarium_actors', [false]), false);
     const t = ticks; await sleep(50); assert.equal(ticks, t, 'stopped');
     assert.equal((await rpc('terrarium_status')).actors, false);
@@ -116,11 +115,10 @@ test('actors with always: true run from boot, outside the toggle, and do not cou
     { name: 'trader', every: 15, run: () => { trader++; } },
   ] });
   const rpc = (m, p = []) => sim.provider.request({ method: m, params: p });
-  await sleep(50);
-  assert.ok(keeper >= 2, `the keeper ran without the toggle (${keeper})`); assert.equal(trader, 0, 'the trader waits for the toggle');
+  await until(() => keeper >= 2, 3000, 'the keeper running without the toggle'); assert.equal(trader, 0, 'the trader waits for the toggle');
   assert.equal((await rpc('terrarium_status')).hasActors, true);
-  await rpc('terrarium_actors', [true]); await sleep(40); assert.ok(trader >= 1);
-  await rpc('terrarium_actors', [false]); const k = keeper; await sleep(40); assert.ok(keeper > k, 'the toggle never stops an always actor');
+  await rpc('terrarium_actors', [true]); await until(() => trader >= 1, 3000, 'the trader after the toggle');
+  await rpc('terrarium_actors', [false]); const k = keeper; await until(() => keeper > k, 3000, 'the keeper after the toggle went off (the toggle never stops an always actor)');
   const only = await runScenario({ persist: false, clock: 1, actors: [{ always: true, every: 1000, run() {} }] });
   assert.equal((await only.provider.request({ method: 'terrarium_status' })).hasActors, false, 'nothing to toggle: the dev bar hides the button');
 });
