@@ -125,12 +125,13 @@ address (`anvil_setCode` + storage by variable name), the chain clock, snapshots
 > Every row is a few lines of scenario. The [cookbook](docs/cookbook.md) has one paste-able example per primitive and the [tutorial](docs/tutorial-new-protocol.md) shows how they combine.
 
 ## 📚 Documentation
-[docs/README.md](docs/README.md) is the index: the [tutorial](docs/tutorial-new-protocol.md) (project anatomy, where the
+[docs/README.md](docs/README.md) is the index: [the first fifteen minutes](docs/first-fifteen-minutes.md) (one screen), the [tutorial](docs/tutorial-new-protocol.md) (project anatomy, where the
 bytes come from, four steps), [off-chain data](docs/http-and-subgraphs.md) (subgraphs and APIs answered from the chain),
 the [cookbook](docs/cookbook.md) (every feature, one example) and the [API reference](docs/api.md).
 
 | | |
 |---|---|
+| ⏱️ [The first fifteen minutes](docs/first-fifteen-minutes.md) | one screen from an empty Vite project to your dapp swapping on the real Uniswap V2 |
 | 🧭 [Tutorial](docs/tutorial-new-protocol.md) | project anatomy, where the bytes come from, compiling contracts, the four steps, troubleshooting |
 | 🕸️ [Off-chain data](docs/http-and-subgraphs.md) | subgraphs and APIs answered from the chain; indexer down / behind / slow |
 | 🍳 [Cookbook](docs/cookbook.md) | every feature, one paste-able example |

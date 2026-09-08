@@ -7,7 +7,9 @@ A complete EVM chain inside the page, presented to your dapp as a wallet. These 
 
 ```mermaid
 flowchart LR
-  readme["README<br/><i>what it is, quickstart,<br/>what you can put a UI through</i>"] --> tut["Tutorial<br/><i>project anatomy, where the bytes<br/>come from, four steps</i>"]
+  readme["README<br/><i>what it is, quickstart,<br/>what you can put a UI through</i>"] --> first["First fifteen minutes<br/><i>one screen, links out</i>"]
+  first --> tut["Tutorial<br/><i>project anatomy, where the bytes<br/>come from, four steps</i>"]
+  readme --> tut
   tut --> http["Off-chain data<br/><i>APIs and subgraphs<br/>answered from the chain</i>"]
   tut --> cook["Cookbook<br/><i>every feature, one example</i>"]
   tut --> integ["Integrations<br/><i>Vite, React, Next.js,<br/>Storybook, script tag</i>"]
@@ -19,6 +21,7 @@ flowchart LR
 | read | when | you get |
 |---|---|---|
 | 🏠 [README](../README.md) | first | what the Terrarium is and is not, the quickstart, the table of things a frontend gets wrong that a scenario can show |
+| ⏱️ [The first fifteen minutes](first-fifteen-minutes.md) | you want to see it work before reading anything long | install, the plugin, a scenario, run, break things; one screen with links out |
 | 🧭 [Tutorial: your dapp against a new protocol](tutorial-new-protocol.md) | you are adding it to a project | the shape of a project folder by folder; the three sources of bytes (fetched code, a recorded fork, your own Solidity) and why you never compile Aave; compiling contracts; the four steps; troubleshooting |
 | 🕸️ [Off-chain data: APIs, subgraphs and indexers](http-and-subgraphs.md) | your dapp reads a subgraph or an API | how the dapp's `fetch` is answered from the chain, GraphQL resolvers, the failure modes (down, behind, slow), the Frogpond example |
 | 🔌 [Integrations](integrations.md) | your app is not on Vite, or you want the Terrarium in a Storybook or a deployed page | the Vite plugin (with its `mount: 'react'` option), the `@terrariumlabs/react` component (Next.js, Remix, CRA, Storybook), the script tag, the viem transport for wagmi; how to check the production bundle |

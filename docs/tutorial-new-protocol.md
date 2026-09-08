@@ -210,6 +210,12 @@ an npm script so a contract change is one command away.
 
 ## 1. Get the protocol in
 
+Three ways, and the choice takes one question: where does the protocol's state live? If it is deployed on a real chain and
+you only need its code, because your scenario will create the pools, vaults or positions itself, fetch the code (A). If you
+need the chain as it is at a block, with its real reserves, prices and positions, record the state (B). If the protocol is
+yours and you already deploy it with Foundry or Hardhat, deploy it against Anvil and import everything (C). Frogpond uses A;
+the Aave and Euler examples use B.
+
 ### A. Fetch the code
 
 ```bash
