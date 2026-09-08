@@ -22,6 +22,7 @@ const CSS = `
 #terrarium-explorer { position: fixed; left: 0; right: 0; z-index: 2147483000; max-height: 60vh; overflow: auto; background: #0f1a14; color: #dfe9e3; border-top: 1px solid rgba(255,255,255,0.12); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
 #terrarium-explorer .head { display: flex; align-items: center; gap: 12px; padding: 8px 24px; font: 13px ui-sans-serif, system-ui, sans-serif; color: rgba(223,233,227,0.8); position: sticky; top: 0; background: #0f1a14; border-bottom: 1px solid rgba(255,255,255,0.08); }
 #terrarium-explorer .head b { color: #fff; }
+#terrarium-explorer .head select { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); color: #fff; padding: 3px 6px; border-radius: 6px; font: inherit; }
 #terrarium-explorer table { width: 100%; border-collapse: collapse; }
 #terrarium-explorer th { text-align: left; font-weight: 600; color: rgba(223,233,227,0.6); padding: 6px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); white-space: nowrap; }
 #terrarium-explorer th:first-child, #terrarium-explorer td:first-child { padding-left: 24px; }
@@ -92,7 +93,7 @@ export function mountDevBar(provider: Provider, opts: DevBarOptions = {}) {
   // ---- the transaction explorer -----------------------------------------------------------------------------------
   const panel = el(`<section id="terrarium-explorer" data-testid="explorer" hidden></section>`);
   const open = new Set<string>();   // expanded rows, by hash, kept across refreshes
-  let lastRender = '';
+  let lastRender = '', filter: 'all' | 'mine' | 'failed' = 'all', me: string | null = null;   // `me`: accounts[0] from terrarium_status
   const bTxs = btn('Transactions', 'txs', 'Every transaction on this chain, like a block explorer: receipt, decoded call, events, revert reason', async () => {
     panel.hidden = !panel.hidden; bTxs.classList.toggle('on', !panel.hidden); lastRender = '';
     if (!panel.hidden) await refreshTxs();
@@ -101,10 +102,11 @@ export function mountDevBar(provider: Provider, opts: DevBarOptions = {}) {
   const statusCell = (s: string) => s === 'success' ? '<span class="ok" title="success">✓</span>' : s === 'pending' ? '<span class="wait" title="pending">⏳</span>' : `<span class="bad" title="${s}">✗</span>`;
   const who = (labels: Record<string, string>, a: string | null) => a ? `<span class="addr" title="${a}">${esc(labels[a.toLowerCase()] ?? short(a))}</span>` : '<span class="dim">contract creation</span>';
   const render = (data: { total: number; labels: Record<string, string>; transactions: any[] }) => {
-    const key = JSON.stringify([data.total, data.transactions.map((t) => [t.hash, t.status]), [...open]]);
+    const key = JSON.stringify([data.total, data.transactions.map((t) => [t.hash, t.status]), [...open], filter, me]);
     if (key === lastRender) return; lastRender = key;
     const L = data.labels ?? {};
-    const rows = data.transactions.map((t) => {
+    const shown = data.transactions.filter((t) => filter === 'all' ? true : filter === 'failed' ? t.status !== 'success' && t.status !== 'pending' : !!me && t.from?.toLowerCase() === me.toLowerCase());
+    const rows = shown.map((t) => {
       const method = t.method ? (t.method.name ? `<span class="name">${esc(t.method.name)}</span>` : `<span class="dim">${esc(t.method.selector)}</span>`) : '<span class="dim">transfer</span>';
       const isOpen = open.has(t.hash);
       const detail = !isOpen ? '' : `<tr class="detail" data-testid="tx-detail"><td colspan="10"><dl>
@@ -126,10 +128,13 @@ export function mountDevBar(provider: Provider, opts: DevBarOptions = {}) {
         <td class="hash" title="${t.hash}">${short(t.hash)}</td><td>${method}</td><td>${who(L, t.from)}</td><td>${who(L, t.to)}</td>
         <td>${formatEth(t.value)} ETH</td><td class="dim">${t.receipt ? num(t.receipt.gasUsed) : ''}</td><td class="dim">${t.logs?.length ? `${t.logs.length} event${t.logs.length === 1 ? '' : 's'}` : ''}</td></tr>${detail}`;
     }).join('');
-    panel.innerHTML = `<div class="head"><b>Transactions</b> <span>${data.total} on this chain, newest first${data.total > data.transactions.length ? ` (showing ${data.transactions.length})` : ''}</span><span class="spacer" style="flex:1"></span><span class="dim">click a row for the receipt, the decoded call and the events</span></div>`
-      + (rows ? `<table><thead><tr><th></th><th>block</th><th>time</th><th>hash</th><th>method</th><th>from</th><th>to</th><th>value</th><th>gas used</th><th>events</th></tr></thead><tbody>${rows}</tbody></table>` : `<div class="empty">No transactions yet. Do something in the dapp and it appears here.</div>`);
+    panel.innerHTML = `<div class="head"><b>Transactions</b> <span>${data.total} on this chain, newest first${data.total > data.transactions.length ? ` (showing ${data.transactions.length})` : ''}${filter !== 'all' ? `, ${shown.length} ${filter === 'mine' ? 'from you' : 'failed'}` : ''}</span>
+      <select data-testid="tx-filter" title="Which transactions to list"><option value="all"${filter === 'all' ? ' selected' : ''}>all</option><option value="mine"${filter === 'mine' ? ' selected' : ''}>mine (account #0)</option><option value="failed"${filter === 'failed' ? ' selected' : ''}>failed</option></select>
+      <span class="spacer" style="flex:1"></span><span class="dim">click a row for the receipt, the decoded call and the events</span></div>`
+      + (rows ? `<table><thead><tr><th></th><th>block</th><th>time</th><th>hash</th><th>method</th><th>from</th><th>to</th><th>value</th><th>gas used</th><th>events</th></tr></thead><tbody>${rows}</tbody></table>` : `<div class="empty">${data.total ? 'Nothing matches this filter.' : 'No transactions yet. Do something in the dapp and it appears here.'}</div>`);
     place();
   };
+  panel.addEventListener('change', (e) => { const sel = e.target as HTMLSelectElement; if (sel.dataset.testid === 'tx-filter') { filter = sel.value as typeof filter; lastRender = ''; refreshTxs(); } });
   panel.addEventListener('click', (e) => {
     const row = (e.target as HTMLElement).closest<HTMLElement>('tr.tx'); if (!row) return;
     const h = row.dataset.hash!; open.has(h) ? open.delete(h) : open.add(h); lastRender = ''; refreshTxs();
@@ -161,6 +166,7 @@ export function mountDevBar(provider: Provider, opts: DevBarOptions = {}) {
   const refresh = async () => {
     if (!document.getElementById('terrarium-devbar')) return;   // unmounted: stop polling
     const s = await rpc('terrarium_status').catch(() => null); if (!s) return;
+    me = s.accounts?.[0] ?? me;
     info.querySelector('[data-f=chain]')!.textContent = String(s.chainId);
     info.querySelector('[data-f=block]')!.textContent = String(parseInt(s.block, 16));
     info.querySelector('[data-f=engine]')!.textContent = 'revm/wasm' + (s.fork ? ` · fork @${s.fork.blockNumber}${s.fork.offline ? ' offline' : ''}${s.fork.misses ? ` · ${s.fork.misses} MISSES` : ''}` : '')

@@ -86,7 +86,8 @@ it for the Terrarium: run it against Anvil, dump, import, install.
 ```sh
 anvil &                                              # chain 31337
 forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8545 --broadcast --private-key $ANVIL_KEY_0
-npx terrarium import-anvil --rpc http://127.0.0.1:8545 --out fixtures/protocol.json     # anvil_dumpState, inflated
+npx terrarium import-anvil --rpc http://127.0.0.1:8545 --out fixtures/protocol.json \
+  --broadcast broadcast/Deploy.s.sol/31337/run-latest.json --artifacts out     # + contract names and ABIs for the explorer
 ```
 ```ts
 import protocol from './fixtures/protocol.json';
@@ -389,22 +390,6 @@ root.render(<>{TerrariumMount && <TerrariumMount />}<App /></>);
 Off (`VITE_TERRARIUM=off`), the module exports `null` and the bundle carries none of the simulator: the gating is the
 plugin's, not a constant you maintain.
 
-## 25. wagmi: reads on the Terrarium chain
-
-A viem dapp reads through the wallet provider it discovered; a wagmi dapp declares one transport per chain up front, before
-any wallet is connected, and `http()` has nothing to point at (the wallet is the node). `@terrariumlabs/core/transport` is that
-transport: `custom()` over the EIP-6963 announcement, found on the first request.
-
-```ts
-import { terrariumTransport } from '@terrariumlabs/core/transport';      // no engine code, a few dozen lines
-const terrarium = defineChain({ id: 31337, name: 'Terrarium', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: { default: { http: [] } } });
-createConfig({ chains: [mainnet, terrarium], transports: { [mainnet.id]: http(), [terrarium.id]: terrariumTransport() } });
-```
-
-Keep it behind the same guard as the mount: a page without a Terrarium has nothing to find, and reads on that chain fail
-the way reads on an unreachable RPC would. The wallet side needs nothing: wagmi's `injected()` discovery lists "Terrarium
-Wallet" like any extension.
-
 ## 24. The transaction explorer
 
 The dev bar's **Transactions** button opens a panel listing every transaction on the chain, newest first, like a block
@@ -413,7 +398,8 @@ its arguments, the raw input, the revert reason and every event.
 
 Standard things decode with no configuration: ERC-20/721/1155/4626 transfers, approvals, deposits and withdrawals, WETH,
 Uniswap V2 `Swap`/`Sync`/`Mint`/`Burn`, Ownable, proxies, OpenZeppelin's custom errors, `Error(string)` and `Panic`. Contracts
-installed from a fixture are named by their fixture keys. For the rest, name an address where you learn it, with its ABI:
+installed from a fixture are named by their fixture keys. Contracts imported from an Anvil deployment with `--broadcast` and `--artifacts` (recipe 3) arrive named and with their ABIs.
+For the rest, name an address where you learn it, with its ABI:
 
 ```ts
 export default defineScenario({
@@ -439,3 +425,19 @@ In a React dev tool of your own (`@terrariumlabs/react`): `const txs = useTransa
 **Hide** collapses the bar to a leaf at the bottom right (remembered across reloads); the chain keeps running. To start that
 way: `terrarium({ devBar: 'hidden' })` in the Vite plugin, `startTerrarium(worker, { devBar: 'hidden' })`, `<Terrarium devBar="hidden">`,
 or `npx terrarium build --devbar hidden`. A Hide/Show click always wins over the default.
+
+## 25. wagmi: reads on the Terrarium chain
+
+A viem dapp reads through the wallet provider it discovered; a wagmi dapp declares one transport per chain up front, before
+any wallet is connected, and `http()` has nothing to point at (the wallet is the node). `@terrariumlabs/core/transport` is that
+transport: `custom()` over the EIP-6963 announcement, found on the first request.
+
+```ts
+import { terrariumTransport } from '@terrariumlabs/core/transport';      // no engine code, a few dozen lines
+const terrarium = defineChain({ id: 31337, name: 'Terrarium', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: { default: { http: [] } } });
+createConfig({ chains: [mainnet, terrarium], transports: { [mainnet.id]: http(), [terrarium.id]: terrariumTransport() } });
+```
+
+Keep it behind the same guard as the mount: a page without a Terrarium has nothing to find, and reads on that chain fail
+the way reads on an unreachable RPC would. The wallet side needs nothing: wagmi's `injected()` discovery lists "Terrarium
+Wallet" like any extension.

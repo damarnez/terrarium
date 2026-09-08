@@ -38,6 +38,9 @@ export async function runScenario(config: ScenarioConfig) {
     firstBoot,
     codeAt: async (a) => (await rpc('eth_getCode', [a, 'latest'])) as Hex,
     install: async (fixture: any) => {
+      // names and ABIs the fixture carries (import-anvil --broadcast/--artifacts, or written by hand): the explorer uses them
+      for (const [a, name] of Object.entries((fixture?.names ?? {}) as Record<string, string>)) { const k = a.toLowerCase(); registry.set(k, { ...registry.get(k), name, auto: true }); }
+      for (const [a, abi] of Object.entries((fixture?.abis ?? {}) as Record<string, Abi>)) { const k = a.toLowerCase(); registry.set(k, { ...registry.get(k), abi }); }
       // an Anvil state dump (`terrarium import-anvil`, or anvil_dumpState by hand): whole accounts, code and storage,
       // through anvil_loadState. Idempotent like the code fixtures: an account that already has code is left alone, and
       // accounts without code (the deployer's nonce, funded EOAs) are only written on a fresh chain.
@@ -95,7 +98,7 @@ export async function runScenario(config: ScenarioConfig) {
   const abisFor = (address: string | null): Abi[] => [registry.get((address ?? '').toLowerCase())?.abi, configAbi, KNOWN_ABI].filter((a): a is Abi => !!a && a.length > 0);
   const labelsOf = () => {
     const out: Record<string, string> = {};
-    ctx.accounts.forEach((a, i) => { out[a.toLowerCase()] = `Account #${i}`; });
+    ctx.accounts.forEach((a, i) => { out[a.toLowerCase()] = i === 0 ? 'You (#0)' : `Account #${i}`; });   // accounts[0] is the browser user
     for (const [a, e] of registry) if (e.name && e.auto) out[a] = e.name;                            // fixture keys
     for (const [a, name] of Object.entries(config.labels ?? {})) if (a) out[a.toLowerCase()] = name;   // the config
     for (const [a, e] of registry) if (e.name && !e.auto) out[a] = e.name;                           // ctx.label() wins

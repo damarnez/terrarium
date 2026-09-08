@@ -215,3 +215,7 @@ fork replay. Verified: `npm run e2e`, `npm run test:uniswap`, `npm run test:fork
   static map only. Event decoding tries every candidate with the log's topic0 (ERC-20 vs ERC-721 Transfer). `@terrariumlabs/react`
   gained `useTransactions()` for custom dev tools. Frogpond's config shrank to `abis: [routerAbi, PEPE.abi]` + two labels.
   Also `devBar: 'hidden'` (plugin, `startTerrarium`, React, `--devbar hidden`): the bar starts as the leaf; Frogpond uses it.
+- **Second review pass: the Anvil path.** A protocol deployed with `forge script` and imported with `terrarium import-anvil`
+  showed as bare addresses. Fixtures may now carry `names` and `abis` (by address); `install` registers them; `import-anvil`
+  fills them from `--broadcast run-latest.json` (Foundry's contract names) and `--artifacts out/` (their ABIs), or from
+  `name=0xaddress` positionals. Account 0 is `You (#0)` by default. The explorer has an all / mine / failed filter.

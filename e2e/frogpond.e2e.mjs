@@ -127,6 +127,11 @@ try {
   results.explorerDetail = (await page.getByTestId('tx-detail').innerText()).replace(/\s+/g, ' ').slice(0, 200);
   results.explorerEvents = await page.getByTestId('tx-events').locator('li').allInnerTexts().then((l) => l.map((s) => s.replace(/\s+/g, ' ').replace(/\(.*$/, '').trim()));
   results.explorerReverted = await page.locator('[data-testid=tx-row][data-status=reverted]').count();
+  await page.getByTestId('tx-filter').selectOption('mine');             // only the browser user's transactions
+  await page.waitForFunction(() => /from you/.test(document.querySelector('[data-testid=explorer] .head').innerText));
+  results.explorerMineRows = await page.getByTestId('tx-row').count();
+  results.explorerMineAllFromYou = (await page.getByTestId('tx-row').allInnerTexts()).every((t) => /\bYou\b/.test(t));
+  await page.getByTestId('tx-filter').selectOption('all');
   await page.getByTestId('txs').click();                                 // close the panel
   // hide the bar: the leaf brings it back
   await page.getByTestId('hide').click();
@@ -189,7 +194,7 @@ try {
     && /9\.09%/.test(results.positionAfterRemove)
     && results.indexedSwaps >= 2 && /swaps indexed/.test(results.indexerSummary) && /HTTP 503/.test(results.indexerDown) && results.httpAnswered.hits >= 3
     && results.priceAfterReload === results.priceAfterSwapBack && results.blockAfterReload === results.blockBeforeReload
-    && results.explorerRows >= 4 && /swapExactTokensForETH/.test(results.explorerFirstRow) && results.explorerEvents.some((e) => /\bSwap$/.test(e)) && results.devbarHidden && results.devbarRestored;
+    && results.explorerRows >= 4 && results.explorerMineRows >= 3 && results.explorerMineRows < results.explorerRows && results.explorerMineAllFromYou && /swapExactTokensForETH/.test(results.explorerFirstRow) && results.explorerEvents.some((e) => /\bSwap$/.test(e)) && results.devbarHidden && results.devbarRestored;
   console.log(ok ? '\nPASS' : '\nFAIL');
   process.exitCode = ok ? 0 : 1;
 } catch (e) {

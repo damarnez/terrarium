@@ -137,14 +137,20 @@ test('import-anvil: anvil_dumpState (gzipped hex) becomes an accounts fixture; t
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const rpc = `http://127.0.0.1:${server.address().port}`;
   try {
-    const out = join(mkdtempSync(join(tmpdir(), 'terrarium-cli-')), 'anvil.json');
-    const r = await runAsync(['import-anvil', '--rpc', rpc, '--out', out, '--skip', '0x00000000000000000000000000000000000000ac']);
-    assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /1 contracts, 3 accounts, 1 storage slots \(chain 31337, block 42\)/);
+    const dir = mkdtempSync(join(tmpdir(), 'terrarium-cli-')), out = join(dir, 'anvil.json');
+    // a Foundry broadcast names the deployed contract; its artifact carries the ABI; a positional names another address by hand
+    const { mkdirSync: mk } = await import('node:fs');
+    writeFileSync(join(dir, 'run-latest.json'), JSON.stringify({ transactions: [{ transactionType: 'CREATE', contractName: 'Counter', contractAddress: '0x00000000000000000000000000000000000000AA', additionalContracts: [] }] }));
+    mk(join(dir, 'out', 'Counter.sol'), { recursive: true }); writeFileSync(join(dir, 'out', 'Counter.sol', 'Counter.json'), JSON.stringify({ abi: [{ type: 'function', name: 'increment', inputs: [], outputs: [], stateMutability: 'nonpayable' }], bytecode: {} }));
+    const r = await runAsync(['import-anvil', 'vault=0x00000000000000000000000000000000000000ab', '--rpc', rpc, '--out', out, '--skip', '0x00000000000000000000000000000000000000ac', '--broadcast', join(dir, 'run-latest.json'), '--artifacts', join(dir, 'out')]);
+    assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /1 contracts, 3 accounts, 1 storage slots \(chain 31337, block 42\), 2 named, 1 with an ABI/);
     const fixture = JSON.parse(readFileSync(out, 'utf8'));
     assert.equal(fixture.chainId, 31337); assert.equal(fixture.blockNumber, 42); assert.match(fixture.source, /import-anvil/);
     assert.deepEqual(fixture.accounts['0x00000000000000000000000000000000000000aa'], { nonce: 1, balance: '0x0', code: '0x5f545f5260205ff3', storage: { '0x0': '0x2a' } });
     assert.deepEqual(fixture.accounts['0x00000000000000000000000000000000000000ab'], { nonce: 0, balance: '0xde0b6b3a7640000' }, 'no code, no storage keys');
     assert.equal(fixture.accounts['0x00000000000000000000000000000000000000ac'], undefined, '--skip');
+    assert.deepEqual(fixture.names, { '0x00000000000000000000000000000000000000aa': 'Counter', '0x00000000000000000000000000000000000000ab': 'vault' });
+    assert.equal(fixture.abis['0x00000000000000000000000000000000000000aa'][0].name, 'increment'); assert.equal(fixture.abis['0x00000000000000000000000000000000000000ab'], undefined, 'no artifact named vault');
     assert.deepEqual(fixture.accounts[you.toLowerCase()], { nonce: 7 }, 'a test account contributes its nonce only');
     // and the fixture installs: the contract answers, the deployer continues from its nonce
     const sim = await createTerrarium({ chainId: 31337 });

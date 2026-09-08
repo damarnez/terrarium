@@ -90,7 +90,7 @@ funds) gets a failed receipt with `droppedReason` instead, so `waitForTransactio
 | `methods` | `{ terrarium_x: (ctx, ...args) => result }` |
 | `http` | `HttpRoute[]`: the dapp's HTTP calls to answer from the chain (see [HTTP routes](#http-routes-terrariumhttp)) |
 | `abis` | extra `Abi[]` for `terrarium_transactions` (the dev bar's transaction explorer). Decoding order for a call (`method: { name, args }`), an event (`logs[i].decoded: { name, args }`) or a custom error (`revert: { name, args }`): the address's own ABI from `ctx.label(address, name, abi)`, then these, then the **built-in known ABI** (ERC-20/721/1155/4626 events and functions, WETH, Uniswap V2 pair/factory, Uniswap V3 Swap, Ownable, pausable, proxies, roles, OpenZeppelin 5 custom errors, `Error(string)`, `Panic`). What nothing covers is shown raw (`method: { selector }`, topics + data, `revertData`) |
-| `labels` | `{ [address]: name }` for addresses known up front. Addresses discovered in `setup` are named with `ctx.label(address, name)`; `install(fixture)` names contracts by their fixture keys; the sim's accounts are `Account #i` unless named. Precedence: `ctx.label` > `labels` > fixture keys > accounts |
+| `labels` | `{ [address]: name }` for addresses known up front. Addresses discovered in `setup` are named with `ctx.label(address, name)`; `install(fixture)` names contracts by their fixture keys; the sim's accounts are `You (#0)` and `Account #i` unless named. A fixture's own `names` / `abis` maps (by address) register too. Precedence: `ctx.label` > `labels` > fixture keys and `names` > accounts |
 
 `ctx`: `sim`, `chainId`, `accounts`, `rpc(method, params)`, `pub` (viem public client), `wallet(account)` (viem wallet
 client signing with the sim's keys), `wait(hashOrPromise)`, `deadline(seconds = 3600)` (chain clock), `random()`,
@@ -160,7 +160,7 @@ The `terrarium` binary ships with `@terrariumlabs/core`; `npx terrarium …` fin
   Writes `{ source, chainId, blockNumber, timestamp, recordedAt, addresses, expected, remoteReads, dump }`, then boots the
   file with the network forbidden and reads the named accounts back; a fixture that cannot replay is not written (exit 1).
   Consumed by a scenario as `fork: { blockNumber: fixture.blockNumber, offline: true }, restore: fixture.dump, clock: 'recording'`.
-- `terrarium import-anvil --rpc <url> [--out fixture.json] [--skip 0xaddress]...`: everything a running Anvil holds, as a fixture for
+- `terrarium import-anvil [name=0xaddress]... --rpc <url> [--broadcast run-latest.json] [--artifacts out/] [--out fixture.json] [--skip 0xaddress]...`: (`--broadcast`: a Foundry broadcast file, contract names by address; `--artifacts`: the `out/` or `artifacts/` directory, their ABIs by contract name; both land in the fixture as `names` / `abis`, which `install` registers for the explorer) everything a running Anvil holds, as a fixture for
   `ctx.install`: `anvil_dumpState` inflated into `{ source, chainId, blockNumber, importedAt, accounts: { address: { nonce, balance, code,
   storage } } }`. Deploy a protocol with its own tooling (`forge script --broadcast`, `hardhat deploy`) against Anvil, import, and the
   Terrarium boots from the same bytes. Anvil's ten test accounts (the Terrarium's own, funded at genesis) contribute only their nonces;
@@ -210,7 +210,7 @@ buttons carrying `data-testid`s: `block` (the head counter), `mine plus-hour min
 wallet-latency receipt-lag txs reset hide`, and `control-<i>` for the scenario's `controls` in order. `txs` toggles the
 **transaction explorer** (`<section id="terrarium-explorer" data-testid="explorer">`, a panel above the bar): every transaction
 newest first with status, block, time, hash, decoded method, labelled from/to, value, gas and event count (`tx-row`, with
-`data-hash` and `data-status`); a click expands it (`tx-detail`: receipt fields, decoded call and arguments, raw input, revert
+`data-hash` and `data-status`; `tx-filter` selects all / mine / failed); a click expands it (`tx-detail`: receipt fields, decoded call and arguments, raw input, revert
 reason and data, `tx-events` with each event decoded or as topics + data). `hide` hides the bar; a leaf button at the bottom
 right (`show`, `#terrarium-devbar-show`) brings it back, and the choice is remembered in `localStorage` (`terrarium:devbar-hidden`),
 winning over the `devBar: 'hidden'` default of the plugin / `startTerrarium` / `--devbar hidden`.

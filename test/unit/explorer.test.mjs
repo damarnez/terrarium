@@ -71,10 +71,17 @@ test('runtime: decodes with the known ABI alone, ctx.label(address, name, abi) a
       await ctx.wait(ctx.wallet(ctx.accounts[1]).writeContract({ address: r.contractAddress, abi: PEPE.abi, functionName: 'transfer', args: [ctx.accounts[0], parseEther('5')], gas: 100000n }));
       await ctx.wait(ctx.sim.sendAs(ctx.accounts[2], { to: r.contractAddress, data: '0xdeadbeef', gas: '0x186a0' }));
       await ctx.wait(ctx.sim.sendAs(ctx.accounts[2], { to: UNISWAP.contracts.weth.address, value: '0x1', data: '0xd0e30db0', gas: '0x186a0' }));   // WETH deposit(): known ABI, both call and event
+      // a fixture that carries names and ABIs (what import-anvil --broadcast --artifacts writes): PEPE's code at another address
+      const CLONE = '0x00000000000000000000000000000000000c10e0';
+      await ctx.install({ contracts: { clone: { address: CLONE, code: await ctx.codeAt(r.contractAddress) } }, names: { [CLONE]: 'PEPE clone' }, abis: { [CLONE]: PEPE.abi } });
+      await ctx.wait(ctx.sim.sendAs(ctx.accounts[3], { to: CLONE, data: '0xa9059cbb' + ctx.accounts[0].slice(2).padStart(64, '0') + '1'.padStart(64, '0'), gas: '0x186a0' }));   // transfer(you, 1) with no balance
     } });
-  const { total, labels, transactions: [weth, unknown, reverted, transfer, deploy] } = await sim.provider.request({ method: 'terrarium_transactions', params: [{}] });
-  assert.equal(total, 5);
+  const { total, labels, transactions: [clone, weth, unknown, reverted, transfer, deploy] } = await sim.provider.request({ method: 'terrarium_transactions', params: [{}] });
+  assert.equal(total, 6);
+  assert.equal(labels[clone.to.toLowerCase()], 'PEPE clone', 'the fixture\'s names beat its key'); assert.equal(clone.method.name, 'transfer'); assert.equal(clone.revert.name, 'InsufficientBalance', 'the fixture\'s ABI decodes the custom error');
   assert.equal(labels[sim.accounts[0].address.toLowerCase()], 'You', 'static config label'); assert.equal(labels[sim.accounts[1].address.toLowerCase()], 'Alice'); assert.equal(labels[sim.accounts[2].address.toLowerCase()], 'Account #2');
+  const bare = await runScenario({ chainId: 31337, persist: false, clock: 1_700_000_000 });
+  assert.equal((await bare.provider.request({ method: 'terrarium_transactions', params: [{}] })).labels[bare.accounts[0].address.toLowerCase()], 'You (#0)'); bare.stop();
   assert.equal(labels[transfer.to.toLowerCase()], 'PEPE'); assert.equal(labels[UNISWAP.contracts.router.address.toLowerCase()], 'router', 'named by its fixture key');
   assert.deepEqual(deploy.method, { name: 'create', args: [] });
   // ERC-20 transfer + Transfer: no abis configured for them beyond the address ABI; the known set would do too

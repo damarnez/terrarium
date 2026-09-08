@@ -16,7 +16,7 @@
 //       and slot the EVM touches is recorded), rolls the script's changes back (unless --keep) and dumps. The fixture
 //       is what a scenario's `fork: { blockNumber, offline: true }, restore: fixture.dump` consumes.
 //
-//   terrarium import-anvil --rpc <url> [--out fixture.json] [--skip 0xaddress]...
+//   terrarium import-anvil [name=0xaddress]... --rpc <url> [--broadcast run-latest.json] [--artifacts out/] [--out fixture.json] [--skip 0xaddress]...
 //       Everything a running Anvil holds (anvil_dumpState: every account's code, storage, nonce and balance) as a fixture
 //       for ctx.install(): deploy your protocol with its own tooling (forge script, hardhat deploy) against Anvil and
 //       boot the Terrarium from the result, byte for byte. --skip leaves accounts out (Anvil's funded test accounts,
@@ -37,7 +37,9 @@ const usage = `usage:
   terrarium build [--scenario terrarium.scenario.ts] [--out dist-terrarium] [--devbar hidden|off]
   terrarium fetch-code <name=0xaddress>... --rpc <url> [--block N] [--chain ID] [--out fixture.json]
   terrarium record [name=0xaddress]... --rpc <url> [--block N] [--chain ID] [--storage name:slot,slot] [--script warm.mjs] [--keep] [--out fixture.json]
-  terrarium import-anvil --rpc <url> [--out fixture.json] [--skip 0xaddress]...`;
+  terrarium import-anvil [name=0xaddress]... --rpc <url> [--broadcast run-latest.json] [--artifacts out/] [--out fixture.json] [--skip 0xaddress]...
+      --broadcast: a Foundry broadcast (contract names + addresses), --artifacts: the out/ (or artifacts/) dir with their ABIs;
+      both land in the fixture as names/abis, so the dev bar's explorer shows the deployment decoded with no scenario code`;
 const fail = (msg) => { console.error(msg); process.exit(1); };
 const hex = (n) => '0x' + BigInt(n).toString(16);
 /** a raw JSON-RPC call to --rpc */
@@ -104,10 +106,29 @@ if (cmd === 'build') {
     accounts[a] = { nonce: Number(acct.nonce), balance: acct.balance, code, storage };
     if (code) contracts++; slots += Object.keys(storage ?? {}).length;
   }
-  const fixture = { source: `Anvil state imported with \`terrarium import-anvil\` via ${args.rpc}`, chainId, blockNumber, importedAt: new Date().toISOString(), accounts };
+  // names: name=0xaddress positionals, and a Foundry broadcast (forge script --broadcast writes broadcast/<Script>/<chain>/run-latest.json)
+  const names = {};
+  for (const p of positional) { const [name, address] = p.split('='); if (name && address?.startsWith('0x')) names[address.toLowerCase()] = name; }
+  if (args.broadcast) {
+    const b = JSON.parse(readFileSync(resolve(process.cwd(), args.broadcast), 'utf8'));
+    for (const tx of b.transactions ?? []) {
+      if (tx.contractName && tx.contractAddress) names[tx.contractAddress.toLowerCase()] ??= tx.contractName;
+      for (const c of tx.additionalContracts ?? []) if (c.address) names[c.address.toLowerCase()] ??= c.contractName ?? (tx.contractName ? `${tx.contractName} (created)` : 'contract');
+    }
+  }
+  // ABIs: for each named contract, <name>.json somewhere under --artifacts (Foundry out/<File>.sol/<Name>.json, Hardhat artifacts/…)
+  const abis = {};
+  if (args.artifacts) {
+    const { readdirSync } = await import('node:fs');
+    const files = new Map();
+    const walk = (dir) => { for (const e of readdirSync(dir, { withFileTypes: true })) { const p = join(dir, e.name); if (e.isDirectory()) walk(p); else if (e.name.endsWith('.json') && !e.name.endsWith('.dbg.json')) files.set(e.name.slice(0, -5), p); } };
+    walk(resolve(process.cwd(), args.artifacts));
+    for (const [address, name] of Object.entries(names)) { const p = files.get(name); if (!p) continue; const abi = JSON.parse(readFileSync(p, 'utf8')).abi; if (Array.isArray(abi)) abis[address] = abi; }
+  }
+  const fixture = { source: `Anvil state imported with \`terrarium import-anvil\` via ${args.rpc}`, chainId, blockNumber, importedAt: new Date().toISOString(), accounts, ...(Object.keys(names).length ? { names } : {}), ...(Object.keys(abis).length ? { abis } : {}) };
   const out = args.out ?? 'fixture.json';
   writeFileSync(out, JSON.stringify(fixture));
-  console.log(`wrote ${out}: ${contracts} contracts, ${Object.keys(accounts).length} accounts, ${slots} storage slots (chain ${chainId}, block ${blockNumber})`);
+  console.log(`wrote ${out}: ${contracts} contracts, ${Object.keys(accounts).length} accounts, ${slots} storage slots (chain ${chainId}, block ${blockNumber})${Object.keys(names).length ? `, ${Object.keys(names).length} named, ${Object.keys(abis).length} with an ABI` : ''}`);
 } else if (cmd === 'record') {
   if (!args.rpc) fail(usage);
   const [{ createTerrarium }, viem] = await Promise.all([import('../src/engine.js'), import('viem')]);

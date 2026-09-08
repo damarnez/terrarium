@@ -12,7 +12,10 @@ export { reply } from './http.ts';
 export type { HttpRoute, HttpRequest, HttpReply, GraphqlQuery, GraphqlResolver } from './http.ts';
 
 /** Runtime bytecode of deployed contracts, installed at fixed addresses (`terrarium fetch-code` produces these). */
-export interface Fixture { contracts: Record<string, { address: string; code: string }> }   // plain strings: JSON imports fit as-is
+export interface Fixture extends FixtureMeta { contracts: Record<string, { address: string; code: string }> }   // plain strings: JSON imports fit as-is
+/** what any fixture may add for the transaction explorer: names and ABIs by address (`terrarium import-anvil --broadcast --artifacts`
+ *  fills them from a Foundry deployment). `install(fixture)` registers them like `ctx.label` would */
+export interface FixtureMeta { names?: Record<string, string>; abis?: Record<string, Abi | readonly unknown[]> }
 export interface LogFilter { address?: Address | Address[]; topics?: (Hex | Hex[] | null)[] }
 
 export interface ScenarioContext {
@@ -51,7 +54,7 @@ export interface ScenarioContext {
 }
 
 /** what `anvil_dumpState` / `anvil --dump-state` produce (and `terrarium import-anvil` writes): whole accounts */
-export interface AnvilStateFixture {
+export interface AnvilStateFixture extends FixtureMeta {
   accounts: Record<string, { nonce?: number | string; balance?: string; code?: Hex; storage?: Record<string, string> } | null>;
   [extra: string]: unknown;
 }
