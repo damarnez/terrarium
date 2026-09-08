@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { keccak256, parseEther, toHex } from 'viem';
 import { runScenario } from '@terrariumlabs/core/worker';
-import { PEPE, FIXTURE, sleep } from './helpers.mjs';
+import { PEPE, FIXTURE, sleep, memoryStorage } from './helpers.mjs';
 
 const posted = [];
 before(() => { globalThis.postMessage = (m) => posted.push(m); });
@@ -123,4 +123,39 @@ test('actors with always: true run from boot, outside the toggle, and do not cou
   await rpc('terrarium_actors', [false]); const k = keeper; await sleep(40); assert.ok(keeper > k, 'the toggle never stops an always actor');
   const only = await runScenario({ persist: false, clock: 1, actors: [{ always: true, every: 1000, run() {} }] });
   assert.equal((await only.provider.request({ method: 'terrarium_status' })).hasActors, false, 'nothing to toggle: the dev bar hides the button');
+});
+
+test('a list of scenarios: the first boots by default, terrarium_scenarios lists them, selecting stores the choice and reloads, each persists under its own slug, reset wipes only the active one', async () => {
+  const storage = memoryStorage(), booted = [];
+  const list = [
+    { name: 'Fresh pond', description: 'as it opens', clock: 1, setup: () => { booted.push('fresh'); } },
+    { name: 'After a whale dump', description: 'price crashed', clock: 1, setup: () => { booted.push('dump'); } },
+    { name: 'Custom key', persist: 'mine', clock: 1, setup: () => { booted.push('custom'); } },
+  ];
+  posted.length = 0;
+  const a = await runScenario(list, { storage });
+  assert.deepEqual(booted, ['fresh']);
+  const st = await a.provider.request({ method: 'terrarium_status' });
+  assert.equal(st.scenario, 'Fresh pond');
+  assert.deepEqual(await a.provider.request({ method: 'terrarium_scenarios' }), { active: 'Fresh pond', scenarios: [
+    { name: 'Fresh pond', description: 'as it opens', persist: 'fresh-pond' }, { name: 'After a whale dump', description: 'price crashed', persist: 'after-a-whale-dump' }, { name: 'Custom key', description: null, persist: 'mine' }] });
+  await a.provider.request({ method: 'evm_mine' }); await a.flush();
+  assert.ok(await storage.getItem('fresh-pond'), 'persisted under the slug of its name');
+  await assert.rejects(a.provider.request({ method: 'terrarium_selectScenario', params: ['Nope'] }), /no scenario named "Nope"/);
+  assert.equal(await a.provider.request({ method: 'terrarium_selectScenario', params: ['Fresh pond'] }), 'Fresh pond', 'selecting the active one is a no-op');
+  assert.equal(posted.filter((m) => m.event === 'reload').length, 0);
+  assert.equal(await a.provider.request({ method: 'terrarium_selectScenario', params: ['After a whale dump'] }), 'After a whale dump');
+  assert.equal(posted.filter((m) => m.event === 'reload').length, 1, 'the page reloads to boot the chosen one');
+  assert.equal(await storage.getItem('terrarium:scenario'), 'After a whale dump');
+  // the reload: the same list boots the stored choice, with its own chain
+  const b = await runScenario(list, { storage });
+  assert.deepEqual(booted, ['fresh', 'dump']);
+  assert.equal((await b.provider.request({ method: 'terrarium_status' })).scenario, 'After a whale dump');
+  assert.equal(b.blockNumber, 0n, 'its own chain, not the first scenario\'s mined block');
+  await b.provider.request({ method: 'evm_mine' }); await b.flush();
+  await b.provider.request({ method: 'terrarium_reset' });
+  assert.equal(await storage.getItem('after-a-whale-dump'), null, 'reset removed this scenario\'s chain');
+  assert.ok(await storage.getItem('fresh-pond'), 'and left the other one alone');
+  assert.equal(await storage.getItem('terrarium:scenario'), 'After a whale dump', 'and the selection');
+  a.stop(); b.stop();
 });

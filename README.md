@@ -57,7 +57,7 @@ export default defineConfig({
   worker: { format: 'es' },
 });
 ```
-Then write `terrarium.scenario.ts` (what the chain looks like when the page loads) and connect to "Terrarium Wallet" in your
+Then write `terrarium.scenario.ts` (what the chain looks like when the page loads; a list of them puts a selector in the dev bar) and connect to "Terrarium Wallet" in your
 own UI. The [tutorial](docs/tutorial-new-protocol.md) takes you through it; the packages are
 [`@terrariumlabs/core`](https://www.npmjs.com/package/@terrariumlabs/core) (engine, scenario runtime, Vite plugin, CLI),
 [`@terrariumlabs/evm`](https://www.npmjs.com/package/@terrariumlabs/evm) (revm in wasm) and

@@ -219,3 +219,14 @@ fork replay. Verified: `npm run e2e`, `npm run test:uniswap`, `npm run test:fork
   showed as bare addresses. Fixtures may now carry `names` and `abis` (by address); `install` registers them; `import-anvil`
   fills them from `--broadcast run-latest.json` (Foundry's contract names) and `--artifacts out/` (their ABIs), or from
   `name=0xaddress` positionals. Account 0 is `You (#0)` by default. The explorer has an all / mine / failed filter.
+
+## 14. Ninth pass (8 Sep 2026) — scenarios as a list, a grouped dev bar
+- **Lists.** `runScenario` takes one scenario or an array (`defineScenarios([...])`); `name` / `description` on ScenarioConfig.
+  The first boots by default; `terrarium_scenarios` lists them; `terrarium_selectScenario(name)` stores the choice under
+  `terrarium:scenario`, stops the chain and posts `reload`; the reload boots the chosen one. Each listed scenario persists under
+  the slug of its name unless it sets `persist`, so switching back finds its chain. `terrarium_reset` now removes only the
+  active scenario's keys (was: the whole store). `runScenario(input, { storage })` for tests. Frogpond ships three: the pond
+  as it opens, after a 40M PEPE whale dump (price 1,250 → 35 gwei), indexer down from the first request.
+- **Dev bar.** Grouped: brand + scenario selector + compact status | chain (mine, +1h, blocks, snapshot) | wallet (reject,
+  latency, receipts) | scenario (actors + controls, hidden when empty) | transactions, reset, hide. Smaller type, group
+  labels, the long status line moved into a tooltip. Test ids unchanged, plus `scenario`, `scenario-name`, `group-*`.

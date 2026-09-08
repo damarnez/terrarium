@@ -6,16 +6,32 @@ import { KNOWN_ABI } from './known-abi.ts';
 import { createTerrarium, indexedDBStorage } from './engine.js';
 import { serveProvider } from './bridge.ts';
 import { runRoute, toWire } from './http.ts';
-import type { Actor, ScenarioConfig, ScenarioContext } from './scenario.ts';
+import type { Actor, ScenarioConfig, ScenarioContext, ScenarioInput } from './scenario.ts';
 
-export async function runScenario(config: ScenarioConfig) {
+type Storage = { getItem(k: string): Promise<any>; setItem(k: string, v: any): Promise<any>; removeItem(k: string): Promise<any>; clear(): Promise<any> };
+const SELECTION_KEY = 'terrarium:scenario';
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'scenario';
+const nameOf = (s: ScenarioConfig, i: number) => s.name ?? `Scenario ${i + 1}`;
+
+/** Boot one scenario, or the active one of a list (the dev bar's selector picks; the choice is stored so a reload keeps it).
+ *  `opts.storage` replaces IndexedDB (tests). */
+export async function runScenario(input: ScenarioInput, opts: { storage?: Storage } = {}) {
+  const list = Array.isArray(input) ? input : [input];
+  if (!list.length) throw new Error('runScenario: no scenario');
+  const names = list.map(nameOf);
+  const anyPersist = list.some((s) => s.persist !== false);
+  const store: Storage | null = opts.storage ?? (anyPersist ? indexedDBStorage('terrarium') : null);
+  const selected = list.length > 1 && store ? await store.getItem(SELECTION_KEY) : null;
+  const index = Math.max(0, names.indexOf(selected));
+  const config = list[index], scenarioName = names[index];
   const chainId = config.chainId ?? 31337;
   // the page learns what to intercept before the chain boots, so the dapp's first fetches are not held up by setup()
   const httpRoutes = toWire(config.http ?? []);
   if (typeof (globalThis as any).postMessage === 'function') (globalThis as any).postMessage({ event: 'httpRoutes', payload: httpRoutes });
   let httpHits = 0;
-  const key = config.persist === false ? null : (config.persist ?? 'default');
-  const storage = key ? indexedDBStorage('terrarium') : null;
+  // a listed scenario persists under its own slug unless it says otherwise, so switching back finds its chain again
+  const key = config.persist === false ? null : (config.persist ?? (list.length > 1 ? slug(scenarioName) : 'default'));
+  const storage = key ? store : null;
   const firstBoot = storage ? (await storage.getItem(key!)) === null : true;
   const restore = typeof config.restore === 'function' ? await config.restore() : config.restore;
   const bootWall = Math.floor(Date.now() / 1000);
@@ -92,7 +108,7 @@ export async function runScenario(config: ScenarioConfig) {
 
   // ---- generic controls, reachable through the provider like any RPC method -----------------------------------
   sim.addMethod('terrarium_actors', async (on?: boolean) => { await actors.toggle(on ?? !actors.enabled); return actors.enabled; });
-  sim.addMethod('terrarium_status', async () => ({ chainId, engine: sim.engine, block: toHex(sim.blockNumber), accounts: ctx.accounts, actors: actors.enabled, actorsLabel: config.actorsLabel ?? 'Actors', hasActors: toggled.length > 0, wallet: { ...sim.wallet }, controls: config.controls ?? [], restoredFromPersistence: sim.restoredFromPersistence, localBlocks: Number(sim.blockNumber) - (config.fork ? config.fork.blockNumber + 1 : 0), http: { routes: httpRoutes.length, hits: httpHits }, fork: config.fork ? { blockNumber: config.fork.blockNumber, offline: !!config.fork.offline, misses: sim.offlineMisses.length } : null, ...(await config.status?.(ctx)) }));
+  sim.addMethod('terrarium_status', async () => ({ scenario: scenarioName, chainId, engine: sim.engine, block: toHex(sim.blockNumber), accounts: ctx.accounts, actors: actors.enabled, actorsLabel: config.actorsLabel ?? 'Actors', hasActors: toggled.length > 0, wallet: { ...sim.wallet }, controls: config.controls ?? [], restoredFromPersistence: sim.restoredFromPersistence, localBlocks: Number(sim.blockNumber) - (config.fork ? config.fork.blockNumber + 1 : 0), http: { routes: httpRoutes.length, hits: httpHits }, fork: config.fork ? { blockNumber: config.fork.blockNumber, offline: !!config.fork.offline, misses: sim.offlineMisses.length } : null, ...(await config.status?.(ctx)) }));
   // ---- the transaction explorer: the engine's list, decoded (address's own ABI, then `abis`, then the known set) and labelled
   const configAbi = (config.abis ?? []).flat() as Abi;
   const abisFor = (address: string | null): Abi[] => [registry.get((address ?? '').toLowerCase())?.abi, configAbi, KNOWN_ABI].filter((a): a is Abi => !!a && a.length > 0);
@@ -120,7 +136,15 @@ export async function runScenario(config: ScenarioConfig) {
       return { ...t, method, revert, logs };
     }) };
   });
-  sim.addMethod('terrarium_reset', async () => { await actors.toggle(false); sim.stop(); await storage?.clear(); return true; });
+  // reset wipes this scenario's chain (its key and its actors flag); other scenarios and the selection stay
+  sim.addMethod('terrarium_reset', async () => { await actors.toggle(false); sim.stop(); if (storage && key) { await storage.removeItem(key); await storage.removeItem(actorsKey); } return true; });
+  // several scenarios: the list for the selector, and the switch (stored, then the page reloads and boots the chosen one)
+  sim.addMethod('terrarium_scenarios', () => ({ active: scenarioName, scenarios: list.map((s, i) => ({ name: names[i], description: s.description ?? null, persist: s.persist === false ? null : (s.persist ?? (list.length > 1 ? slug(names[i]) : 'default')) })) }));
+  sim.addMethod('terrarium_selectScenario', async (name: string) => {
+    if (!names.includes(name)) throw new Error(`no scenario named ${JSON.stringify(name)}; have: ${names.join(', ')}`);
+    if (name !== scenarioName) { await store?.setItem(SELECTION_KEY, name); await actors.toggle(false); sim.stop(); ctx.reload(); }
+    return name;
+  });
   for (const [name, fn] of Object.entries(config.methods ?? {})) sim.addMethod(name, (...args: any[]) => fn(ctx, ...args));
 
   // ---- HTTP routes: the page's fetch forwards matching requests here; the handler answers from the chain --------------

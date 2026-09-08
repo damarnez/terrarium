@@ -183,6 +183,20 @@ try {
   results.pondLifeRow = (await page.getByTestId('activity').locator('li').first().innerText()).replace(/\s+/g, ' ');
   await page.getByTestId('actors').click(); // off again so the next run is deterministic
   await page.waitForFunction(() => /off/.test(document.querySelector('[data-testid=actors]').innerText));
+  // several scenarios: the selector switches to "Indexer down" (its own chain, the indexer failing from the first request) and back
+  results.scenarios = (await rpc('terrarium_scenarios')).scenarios.map((x) => x.name);
+  const priceBeforeSwitch = await price();
+  await page.getByTestId('scenario').selectOption('Indexer down');
+  await page.waitForFunction(() => window.terrarium && document.querySelector('[data-testid=price]'), null, { timeout: 60000 });
+  await page.waitForFunction(async () => (await window.terrarium.request('terrarium_status')).scenario === 'Indexer down', null, { timeout: 60000 });
+  await page.getByTestId('indexer-error').waitFor({ timeout: 30000 });
+  results.scenarioSwitched = (await rpc('terrarium_status')).scenario;
+  results.scenarioIndexerDown = await page.getByTestId('indexer-error').innerText();
+  await page.getByTestId('scenario').selectOption('Frogpond');
+  await page.waitForFunction(async () => window.terrarium && (await window.terrarium.request('terrarium_status')).scenario === 'Frogpond', null, { timeout: 60000 });
+  await page.getByTestId('price').waitFor({ timeout: 30000 });
+  await page.waitForFunction((p) => document.querySelector('[data-testid=price]')?.innerText === p, priceBeforeSwitch, { timeout: 30000 });
+  results.scenarioBackRestored = (await price()) === priceBeforeSwitch;
   results.totalMs = Date.now() - t0;
   console.log(JSON.stringify(results, null, 2));
   const ok = results.dappBundleIsPlain && results.poolIsRealUniswapV2
@@ -194,7 +208,8 @@ try {
     && /9\.09%/.test(results.positionAfterRemove)
     && results.indexedSwaps >= 2 && /swaps indexed/.test(results.indexerSummary) && /HTTP 503/.test(results.indexerDown) && results.httpAnswered.hits >= 3
     && results.priceAfterReload === results.priceAfterSwapBack && results.blockAfterReload === results.blockBeforeReload
-    && results.explorerRows >= 4 && results.explorerMineRows >= 3 && results.explorerMineRows < results.explorerRows && results.explorerMineAllFromYou && /swapExactTokensForETH/.test(results.explorerFirstRow) && results.explorerEvents.some((e) => /\bSwap$/.test(e)) && results.devbarHidden && results.devbarRestored;
+    && results.explorerRows >= 4 && results.explorerMineRows >= 3 && results.explorerMineRows < results.explorerRows && results.explorerMineAllFromYou && /swapExactTokensForETH/.test(results.explorerFirstRow) && results.explorerEvents.some((e) => /\bSwap$/.test(e)) && results.devbarHidden && results.devbarRestored
+    && results.scenarios.length === 3 && results.scenarioSwitched === 'Indexer down' && /HTTP 503/.test(results.scenarioIndexerDown) && results.scenarioBackRestored;
   console.log(ok ? '\nPASS' : '\nFAIL');
   process.exitCode = ok ? 0 : 1;
 } catch (e) {

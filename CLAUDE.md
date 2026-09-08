@@ -20,7 +20,7 @@ Read HANDOFF.md first for the full story. This file is the short operating manua
   and injects one script), `bin/terrarium.mjs` (CLI: `build` standalone bundle, `fetch-code` bytecode fixtures at
   `--block`/`--chain`, `record` = fork a chain at a block + run a warm-up script + dump an offline fixture, self-verified),
   `fixtures/uniswap-v2-mainnet.json`; `transport.ts` (`terrariumTransport()`: a viem transport over the EIP-6963 wallet for wagmi-style dapps, no engine code).
-- **The example scenario** (`terrarium.scenario.ts` at the root): installs the REAL Uniswap V2 at the mainnet
+- **The example scenario** (`terrarium.scenario.ts` at the root, a `defineScenarios` list: Frogpond, After a whale dump, Indexer down; the dev bar's selector switches, each persists under its own slug): installs the REAL Uniswap V2 at the mainnet
   addresses, deploys PEPE, seeds the pair, declares the bot-frog actors, and answers the Uniswap V2 subgraph URL the
   dapp is configured with (`VITE_SUBGRAPH_URL`) from the chain's logs, with `Indexer: down / behind / live` controls.
 - **@terrariumlabs/react** (`packages/terrarium-react`, npm workspace): `<Terrarium worker={() => Worker}>` / `useTerrarium()` /
@@ -87,7 +87,7 @@ npm run build:wasm           # rebuild packages/terrarium-evm/pkg (Rust: wasm32-
 - Vite does not polyfill `process`; ethereumjs depends on `debug`, which reads `process.env.DEBUG` in the browser → every
   host `vite.config.ts` needs the `define` block (see the tutorial). The CLI build sets it itself.
 - `ctx.fresh` is never true in fork mode (the chain starts at fork block + 1): fixture scenarios seed with `ctx.firstBoot`.
-- `terrarium_reset` clears the whole IndexedDB store of the origin, not one key.
+- `terrarium_reset` removes the active scenario's keys (`<persist>`, `<persist>:actors`) and keeps the others and the stored scenario selection (`terrarium:scenario`).
 - Relative imports inside `packages/terrarium/src` carry their `.ts` extension so Node can load the runtime in tests.
 - **Gas is estimated against the *pending* block** (`pendingBlock()`), like geth. Estimating against `latest` made
   real Uniswap swaps run out of gas: the pair's price accumulators cost more when block.timestamp has advanced.

@@ -1,31 +1,41 @@
 // devbar.ts — the dev overlay. Plain DOM, own styles, talks to the chain only through provider.request(), so it works
-// on top of any dapp (React or not) and never touches the dapp's code. Two parts: the bar (controls) and the transaction
-// explorer, a panel above it listing every transaction with its receipt, decoded call, events and revert reason
-// (`terrarium_transactions`: the scenario runtime decodes with the scenario's `abis` and names addresses with `labels`).
+// on top of any dapp (React or not) and never touches the dapp's code. Three parts: the bar (grouped controls: scenario,
+// chain, wallet, the scenario's own buttons, explorer / reset / hide), the transaction explorer (a panel above it listing
+// every transaction with its receipt, decoded call, events and revert reason, fed by `terrarium_transactions`), and the
+// scenario selector (`terrarium_scenarios` / `terrarium_selectScenario`) when the Worker runs a list of scenarios.
 type Provider = { request(a: { method: string; params?: unknown[] }): Promise<any> };
 
 const HIDDEN_KEY = 'terrarium:devbar-hidden';
 const CSS = `
-#terrarium-devbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 2147483000; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 24px; background: #14231b; color: #dfe9e3; font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; font-variant-numeric: tabular-nums; }
+#terrarium-devbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 2147483000; display: flex; align-items: center; gap: 6px 14px; flex-wrap: wrap; padding: 8px 16px; background: #14231b; color: #dfe9e3; font: 12.5px/1.4 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif; font-variant-numeric: tabular-nums; box-shadow: 0 -1px 0 rgba(255,255,255,0.08); }
 #terrarium-devbar[hidden], #terrarium-explorer[hidden], #terrarium-devbar-show[hidden] { display: none; }
-#terrarium-devbar .tag { background: #e8c547; color: #14231b; font-weight: 700; padding: 2px 8px; border-radius: 6px; }
-#terrarium-devbar .muted { color: rgba(223, 233, 227, 0.7); }
-#terrarium-devbar .muted b { color: #fff; font-weight: 600; }
-#terrarium-devbar .spacer { flex: 1; }
-#terrarium-devbar button { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); color: #fff; padding: 6px 10px; border-radius: 8px; font: inherit; cursor: pointer; }
-#terrarium-devbar button:hover { background: rgba(255,255,255,0.16); }
-#terrarium-devbar button.on { background: #1f6f5c; border-color: #1f6f5c; }
+#terrarium-devbar .brand { display: flex; align-items: center; gap: 8px; }
+#terrarium-devbar .tag { background: #e8c547; color: #14231b; font-weight: 700; padding: 2px 8px; border-radius: 6px; letter-spacing: 0.01em; }
+#terrarium-devbar .name { color: #fff; font-weight: 600; }
+#terrarium-devbar select { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); color: #fff; padding: 5px 8px; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; max-width: 260px; }
+#terrarium-devbar .status { color: rgba(223,233,227,0.72); white-space: nowrap; }
+#terrarium-devbar .status b { color: #fff; font-weight: 600; }
+#terrarium-devbar .status .warn { color: #e8c547; }
+#terrarium-devbar .spacer { flex: 1; min-width: 8px; }
+#terrarium-devbar .group { display: flex; align-items: center; gap: 4px; padding-left: 10px; border-left: 1px solid rgba(255,255,255,0.12); }
+#terrarium-devbar .group[hidden] { display: none; }
+#terrarium-devbar .glabel { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(223,233,227,0.45); margin-right: 4px; user-select: none; }
+#terrarium-devbar .glabel:empty { display: none; }
+#terrarium-devbar button { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12); color: #fff; padding: 5px 9px; border-radius: 8px; font: inherit; cursor: pointer; white-space: nowrap; }
+#terrarium-devbar button:hover { background: rgba(255,255,255,0.15); }
+#terrarium-devbar button.on { background: #1f6f5c; border-color: #2b8a73; }
 #terrarium-devbar button.armed { background: #7a3b2a; border-color: #b3452c; }
 #terrarium-devbar button.danger { border-color: rgba(255,140,110,0.4); color: #ffb5a0; }
-#terrarium-devbar button.quiet { background: transparent; border-color: transparent; color: rgba(223,233,227,0.7); }
+#terrarium-devbar button.quiet { background: transparent; border-color: transparent; color: rgba(223,233,227,0.6); }
+#terrarium-devbar button.quiet:hover { color: #fff; background: rgba(255,255,255,0.08); }
 #terrarium-devbar-show { position: fixed; right: 12px; bottom: 12px; z-index: 2147483000; width: 36px; height: 36px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.2); background: #14231b; color: #e8c547; font: 16px/1 ui-sans-serif, system-ui, sans-serif; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.35); }
 #terrarium-explorer { position: fixed; left: 0; right: 0; z-index: 2147483000; max-height: 60vh; overflow: auto; background: #0f1a14; color: #dfe9e3; border-top: 1px solid rgba(255,255,255,0.12); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
-#terrarium-explorer .head { display: flex; align-items: center; gap: 12px; padding: 8px 24px; font: 13px ui-sans-serif, system-ui, sans-serif; color: rgba(223,233,227,0.8); position: sticky; top: 0; background: #0f1a14; border-bottom: 1px solid rgba(255,255,255,0.08); }
+#terrarium-explorer .head { display: flex; align-items: center; gap: 12px; padding: 8px 16px; font: 13px ui-sans-serif, system-ui, sans-serif; color: rgba(223,233,227,0.8); position: sticky; top: 0; background: #0f1a14; border-bottom: 1px solid rgba(255,255,255,0.08); }
 #terrarium-explorer .head b { color: #fff; }
 #terrarium-explorer .head select { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); color: #fff; padding: 3px 6px; border-radius: 6px; font: inherit; }
 #terrarium-explorer table { width: 100%; border-collapse: collapse; }
 #terrarium-explorer th { text-align: left; font-weight: 600; color: rgba(223,233,227,0.6); padding: 6px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); white-space: nowrap; }
-#terrarium-explorer th:first-child, #terrarium-explorer td:first-child { padding-left: 24px; }
+#terrarium-explorer th:first-child, #terrarium-explorer td:first-child { padding-left: 16px; }
 #terrarium-explorer td { padding: 6px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); white-space: nowrap; vertical-align: top; }
 #terrarium-explorer tr.tx { cursor: pointer; }
 #terrarium-explorer tr.tx:hover td { background: rgba(255,255,255,0.04); }
@@ -34,7 +44,7 @@ const CSS = `
 #terrarium-explorer .hash, #terrarium-explorer .addr { color: #9ecbff; }
 #terrarium-explorer .name { color: #e8c547; }
 #terrarium-explorer .dim { color: rgba(223,233,227,0.55); }
-#terrarium-explorer .detail td { padding: 10px 24px 14px 48px; white-space: normal; background: rgba(0,0,0,0.25); }
+#terrarium-explorer .detail td { padding: 10px 16px 14px 40px; white-space: normal; background: rgba(0,0,0,0.25); }
 #terrarium-explorer dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 16px; margin: 0; }
 #terrarium-explorer dt { color: rgba(223,233,227,0.6); } #terrarium-explorer dd { margin: 0; word-break: break-all; }
 #terrarium-explorer .events { margin: 10px 0 0; padding: 0; list-style: none; }
@@ -70,27 +80,45 @@ export function mountDevBar(provider: Provider, opts: DevBarOptions = {}) {
   const style = document.createElement('style'); style.textContent = CSS;
   bar.append(style);
   const el = (html: string) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstElementChild as HTMLElement; };
-  const btn = (label: string, testid: string, title: string, onClick: () => Promise<unknown> | void) => { const b = el(`<button data-testid="${testid}" title="${title}">${label}</button>`); b.onclick = () => Promise.resolve(onClick()).catch((e) => console.warn('[terrarium]', e)); return b; };
+  const btn = (label: string, testid: string, title: string, onClick: () => Promise<unknown> | void) => { const b = el(`<button data-testid="${testid}" title="${esc(title)}">${label}</button>`); b.onclick = () => Promise.resolve(onClick()).catch((e) => console.warn('[terrarium]', e)); return b; };
+  const group = (label: string, testid: string, ...children: HTMLElement[]) => { const g = el(`<div class="group" data-testid="${testid}"><span class="glabel">${label}</span></div>`); g.append(...children); return g; };
 
-  const info = el(`<span class="muted">simulated chain <span data-f="chain">…</span> · block <b data-testid="block" data-f="block">…</b> · <span data-f="engine">…</span> · state persists in IndexedDB</span>`);
+  // ---- brand + scenario selector + status ---------------------------------------------------------------------------
+  const brand = el(`<span class="brand"><span class="tag">Terrarium</span><span class="name" data-testid="scenario-name" hidden></span></span>`);
+  const scenarioSelect = el(`<select data-testid="scenario" title="Which scenario the chain runs: switching stores the choice and reloads the page; each scenario keeps its own chain" hidden></select>`) as HTMLSelectElement;
+  brand.append(scenarioSelect);
+  let scenariosKey = '';
+  scenarioSelect.onchange = () => rpc('terrarium_selectScenario', [scenarioSelect.value]).catch((e) => console.warn('[terrarium]', e));
+  const status = el(`<span class="status">block <b data-testid="block" data-f="block">…</b> · chain <span data-f="chain">…</span><span data-f="engine"></span></span>`);
+
+  // ---- chain ------------------------------------------------------------------------------------------------------------
   let mining: 'auto' | 'interval' = 'auto', snap: string | null = null;
   const bMining = btn('Blocks: instant', 'mining', 'Auto: a block per transaction. Interval: a block every 3s, so you can watch pending states', async () => {
     mining = mining === 'auto' ? 'interval' : 'auto';
     await (mining === 'auto' ? rpc('evm_setAutomine', [true]) : rpc('evm_setIntervalMining', [3000]));
-    bMining.textContent = mining === 'auto' ? 'Blocks: instant' : 'Blocks: every 3s';
+    bMining.textContent = mining === 'auto' ? 'Blocks: instant' : 'Blocks: every 3s'; bMining.classList.toggle('on', mining === 'interval');
   });
   const bSnap = btn('Snapshot', 'snapshot', 'Snapshot the chain; revert brings blocks, receipts, journal and the UI history back', async () => {
-    if (snap) { await rpc('evm_revert', [snap]); snap = null; bSnap.textContent = 'Snapshot'; }
-    else { snap = await rpc('evm_snapshot'); bSnap.textContent = 'Revert to snapshot'; }
+    if (snap) { await rpc('evm_revert', [snap]); snap = null; bSnap.textContent = 'Snapshot'; bSnap.classList.remove('on'); }
+    else { snap = await rpc('evm_snapshot'); bSnap.textContent = 'Revert to snapshot'; bSnap.classList.add('on'); }
   });
-  const bActors = btn('Actors off', 'actors', 'Scripted actors: other users, keepers, arbitrageurs trading on their own', () => rpc('terrarium_actors'));
+  const gChain = group('chain', 'group-chain',
+    btn('Mine a block', 'mine', 'Mine one empty block', () => rpc('evm_mine')),
+    btn('+1 hour', 'plus-hour', 'Move the chain clock forward one hour', async () => { await rpc('evm_increaseTime', [3600]); await rpc('evm_mine'); }),
+    bMining, bSnap);
+
+  // ---- wallet -----------------------------------------------------------------------------------------------------------
   const bReject = btn('Reject next tx', 'reject-next', 'The wallet rejects the next signature request (EIP-1193 error 4001), like a user hitting Cancel', () => rpc('terrarium_setWallet', [{ rejectNext: 1 }]));
   const bLatency = btn('Wallet: instant', 'wallet-latency', 'Make the wallet take 2 seconds to answer, like a real one', async () => { const w = await rpc('terrarium_getWallet'); await rpc('terrarium_setWallet', [{ latencyMs: w.latencyMs ? 0 : 2000 }]); });
   const bLag = btn('Receipts: instant', 'receipt-lag', 'Receipts appear 3 seconds after the block, like a node that has not caught up', async () => { const w = await rpc('terrarium_getWallet'); await rpc('terrarium_setWallet', [{ receiptLagMs: w.receiptLagMs ? 0 : 3000 }]); });
-  const bReset = btn('Reset pond', 'reset', 'Wipe the chain and redeploy everything', async () => { await rpc('terrarium_reset'); location.reload(); });
-  bReset.classList.add('danger');
+  const gWallet = group('wallet', 'group-wallet', bReject, bLatency, bLag);
 
-  // ---- the transaction explorer -----------------------------------------------------------------------------------
+  // ---- the scenario's own knobs: actors + controls ------------------------------------------------------------------------
+  const bActors = btn('Actors off', 'actors', 'Scripted actors: other users, keepers, arbitrageurs trading on their own', () => rpc('terrarium_actors'));
+  const controls = el('<span class="controls" style="display:contents"></span>'); let controlsKey = '';
+  const gScenario = group('scenario', 'group-scenario', bActors, controls);
+
+  // ---- the transaction explorer -----------------------------------------------------------------------------------------
   const panel = el(`<section id="terrarium-explorer" data-testid="explorer" hidden></section>`);
   const open = new Set<string>();   // expanded rows, by hash, kept across refreshes
   let lastRender = '', filter: 'all' | 'mine' | 'failed' = 'all', me: string | null = null;   // `me`: accounts[0] from terrarium_status
@@ -141,46 +169,63 @@ export function mountDevBar(provider: Provider, opts: DevBarOptions = {}) {
   });
   const refreshTxs = async () => { const data = await rpc('terrarium_transactions', [{ limit: 200 }]).catch(() => null); if (data) render(data); };
 
-  // ---- hide / show --------------------------------------------------------------------------------------------------
+  // ---- reset, hide / show -------------------------------------------------------------------------------------------------
+  const bReset = btn('Reset', 'reset', 'Wipe this scenario\'s chain and boot it again from scratch', async () => { await rpc('terrarium_reset'); location.reload(); });
+  bReset.classList.add('danger');
   const pill = el(`<button id="terrarium-devbar-show" data-testid="show" title="Show the Terrarium dev bar" hidden>🌱</button>`);
   const remember = (hidden: boolean) => { try { localStorage.setItem(HIDDEN_KEY, hidden ? '1' : '0'); } catch {} };
   const setHidden = (hidden: boolean) => {
     bar.hidden = hidden; pill.hidden = !hidden;
     if (hidden) { panel.hidden = true; bTxs.classList.remove('on'); }
-    document.body.style.paddingBottom = hidden ? '' : '64px';
+    document.body.style.paddingBottom = hidden ? '' : '56px';
     remember(hidden);
   };
   const bHide = btn('Hide', 'hide', 'Hide the dev bar (the chain keeps running); the leaf at the bottom right brings it back', () => setHidden(true));
   bHide.classList.add('quiet');
   pill.onclick = () => setHidden(false);
+  const gTools = group('', 'group-tools', bTxs, bReset, bHide);
 
-  const controls = el('<span class="controls" style="display:contents"></span>'); let controlsKey = '';
-  bar.append(el('<span class="tag">Terrarium</span>'), info, el('<span class="spacer"></span>'), controls,
-    btn('Mine a block', 'mine', 'Mine one empty block', () => rpc('evm_mine')),
-    btn('+1 hour', 'plus-hour', 'Move the chain clock forward one hour', async () => { await rpc('evm_increaseTime', [3600]); await rpc('evm_mine'); }),
-    bMining, bSnap, bActors, bReject, bLatency, bLag, bTxs, bReset, bHide, panel);
+  bar.append(brand, status, el('<span class="spacer"></span>'), gChain, gWallet, gScenario, gTools, panel);
   document.body.append(bar, pill);
   let startHidden = !!opts.hidden; try { const v = localStorage.getItem(HIDDEN_KEY); if (v !== null) startHidden = v === '1'; } catch {}
-  bar.hidden = startHidden; pill.hidden = !startHidden; document.body.style.paddingBottom = startHidden ? '' : '64px';   // apply without remembering: the default is not a choice
+  bar.hidden = startHidden; pill.hidden = !startHidden; document.body.style.paddingBottom = startHidden ? '' : '56px';   // apply without remembering: the default is not a choice
 
+  // ---- polling: status every 500 ms, the explorer while open, the scenario list now and then -----------------------------------
+  const refreshScenarios = async () => {
+    const s = await rpc('terrarium_scenarios').catch(() => null); if (!s) return;
+    const k = JSON.stringify(s); if (k === scenariosKey) return; scenariosKey = k;
+    const many = s.scenarios.length > 1;
+    scenarioSelect.hidden = !many;
+    const name = brand.querySelector<HTMLElement>('[data-testid=scenario-name]')!;
+    name.hidden = many || !s.active || /^Scenario \d+$/.test(s.active); name.textContent = s.active ?? '';
+    if (many) {
+      scenarioSelect.replaceChildren(...s.scenarios.map((sc: any) => { const o = document.createElement('option'); o.value = sc.name; o.textContent = sc.name; if (sc.description) o.title = sc.description; o.selected = sc.name === s.active; return o; }));
+      const active = s.scenarios.find((sc: any) => sc.name === s.active); if (active?.description) scenarioSelect.title = `${active.description}\n\nSwitching stores the choice and reloads the page; each scenario keeps its own chain.`;
+    }
+  };
   const refresh = async () => {
-    if (!document.getElementById('terrarium-devbar')) return;   // unmounted: stop polling
     const s = await rpc('terrarium_status').catch(() => null); if (!s) return;
     me = s.accounts?.[0] ?? me;
-    info.querySelector('[data-f=chain]')!.textContent = String(s.chainId);
-    info.querySelector('[data-f=block]')!.textContent = String(parseInt(s.block, 16));
-    info.querySelector('[data-f=engine]')!.textContent = 'revm/wasm' + (s.fork ? ` · fork @${s.fork.blockNumber}${s.fork.offline ? ' offline' : ''}${s.fork.misses ? ` · ${s.fork.misses} MISSES` : ''}` : '')
-      + (s.http?.routes ? ` · ${s.http.routes} HTTP route${s.http.routes === 1 ? '' : 's'}, ${s.http.hits} answered` : '')
-      + (s.restoredFromPersistence ? ` · ${s.localBlocks} local block${s.localBlocks === 1 ? '' : 's'} restored from a previous session (Reset to start clean)` : '');
+    status.querySelector('[data-f=chain]')!.textContent = String(s.chainId);
+    status.querySelector('[data-f=block]')!.textContent = String(parseInt(s.block, 16));
+    const notes: string[] = [];
+    if (s.fork) notes.push(`fork @${s.fork.blockNumber}${s.fork.offline ? ' offline' : ''}${s.fork.misses ? ` · <span class="warn">${s.fork.misses} MISSES</span>` : ''}`);
+    if (s.http?.routes) notes.push(`${s.http.routes} HTTP route${s.http.routes === 1 ? '' : 's'}, ${s.http.hits} answered`);
+    if (s.restoredFromPersistence) notes.push(`${s.localBlocks} block${s.localBlocks === 1 ? '' : 's'} restored`);
+    status.querySelector('[data-f=engine]')!.innerHTML = notes.length ? ' · ' + notes.join(' · ') : '';
+    status.title = `revm/wasm · the chain persists in IndexedDB${s.restoredFromPersistence ? ' (Reset to start clean)' : ''}`;
     const ck = JSON.stringify(s.controls ?? []);
     if (ck !== controlsKey) { controlsKey = ck; controls.replaceChildren(...(s.controls ?? []).map((c: any, i: number) => btn(c.label, `control-${i}`, c.title ?? c.method, () => rpc(c.method, c.params ?? [])))); }
     bActors.hidden = !s.hasActors; bActors.textContent = `${s.actorsLabel} ${s.actors ? 'on' : 'off'}`; bActors.classList.toggle('on', s.actors);
+    gScenario.hidden = !s.hasActors && !(s.controls?.length);
     bReject.textContent = s.wallet.rejectNext > 0 ? `Reject next tx · armed (${s.wallet.rejectNext})` : 'Reject next tx'; bReject.classList.toggle('armed', s.wallet.rejectNext > 0);
     bLatency.textContent = s.wallet.latencyMs ? `Wallet: ${s.wallet.latencyMs / 1000}s delay` : 'Wallet: instant'; bLatency.classList.toggle('on', !!s.wallet.latencyMs);
     bLag.textContent = s.wallet.receiptLagMs ? `Receipts: ${s.wallet.receiptLagMs / 1000}s late` : 'Receipts: instant'; bLag.classList.toggle('on', !!s.wallet.receiptLagMs);
-    if (!panel.hidden) await refreshTxs();
+    if (!panel.hidden) { await refreshTxs(); place(); }
   };
-  refresh(); const timer = setInterval(() => { if (document.getElementById('terrarium-devbar')) refresh(); else clearInterval(timer); }, 500);
+  refresh(); refreshScenarios();
+  let ticks = 0;
+  const timer = setInterval(() => { if (!document.getElementById('terrarium-devbar')) return clearInterval(timer); refresh(); if (++ticks % 10 === 0) refreshScenarios(); }, 500);
 }
 
 /** Remove the dev bar, its explorer and the show pill; restore the page's bottom padding. Idempotent. */

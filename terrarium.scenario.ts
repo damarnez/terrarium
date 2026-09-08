@@ -1,7 +1,7 @@
 // terrarium.scenario.ts — what the Terrarium does when it boots under Frogpond. Runs inside the Worker.
 // The real Uniswap V2 (mainnet bytecode) at its mainnet addresses, your PEPE, a seeded pool, and three bot frogs.
 import { decodeEventLog, encodeFunctionData, formatEther, getContractAddress, keccak256, maxUint256, parseAbi, parseEther, toHex, type Address } from 'viem';
-import { defineScenario, reply, type ScenarioContext } from '@terrariumlabs/core/scenario';
+import { defineScenario, defineScenarios, reply, type ScenarioContext } from '@terrariumlabs/core/scenario';
 import uniswap from '@terrariumlabs/core/fixtures/uniswap-v2-mainnet.json';
 import { PEPE } from './src/generated/contracts';
 
@@ -22,7 +22,10 @@ const SUBGRAPH = import.meta.env.VITE_SUBGRAPH_URL ?? 'https://api.thegraph.com/
 const swapEvent = parseAbi(['event Swap(address indexed sender, uint256 amount0In, uint256 amount1In, uint256 amount0Out, uint256 amount1Out, address indexed to)']);
 const SWAP_TOPIC = keccak256(toHex('Swap(address,uint256,uint256,uint256,uint256,address)'));
 
-export default defineScenario({
+// The pond as it opens. The variants below start from it and change one thing; the dev bar lists them and each keeps its own chain.
+const frogpond = defineScenario({
+  name: 'Frogpond',
+  description: 'The pond as it opens: 10 ETH + 8M PEPE in the pool, 50M PEPE in every wallet, the indexer live',
   chainId: Number(import.meta.env.VITE_CHAIN_ID ?? 31337),
   seed: 1337,
   persist: 'frogpond',
@@ -119,6 +122,33 @@ export default defineScenario({
 
   status: (ctx) => ({ addresses: { router: ROUTER, token: TOKEN, weth: ctx.state.weth, factory: ctx.state.factory, pair: ctx.state.pair }, indexer: ctx.state.indexer ?? 'live' }),
 });
+
+/** the same pond after a whale sold 40M PEPE into it: the price is a fraction of the opening one, the chart opens on a cliff */
+const afterTheDump = defineScenario({
+  ...frogpond,
+  name: 'After a whale dump',
+  description: 'Someone sold 40M PEPE into the pool right after it opened: a crashed price, a cliff on the chart, the same balances',
+  persist: 'frogpond-dump',
+  async setup(ctx) {
+    await frogpond.setup!(ctx);
+    if (ctx.fresh) {
+      const whale = ctx.accounts[5];
+      ctx.label(whale, 'Whale');
+      await frogSwap(ctx, whale, 'sell', parseEther('40000000'));
+    }
+  },
+});
+
+/** the pond with its indexer down from the start: the UI must come up on chain data alone */
+const indexerDown = defineScenario({
+  ...frogpond,
+  name: 'Indexer down',
+  description: 'The subgraph answers HTTP 503 from the first request: does the UI come up on chain data alone?',
+  persist: 'frogpond-indexer-down',
+  async setup(ctx) { await frogpond.setup!(ctx); ctx.state.indexer = 'down'; },
+});
+
+export default defineScenarios([frogpond, afterTheDump, indexerDown]);
 
 /** the block the "indexer" has reached: the head, or three blocks behind it */
 async function indexedHead(ctx: ScenarioContext): Promise<bigint> {

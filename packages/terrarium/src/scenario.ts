@@ -72,6 +72,11 @@ export interface Actor {
 }
 
 export interface ScenarioConfig {
+  /** shown in the dev bar; with several scenarios (`export default [a, b]`) it is what the selector lists and what
+   *  `terrarium_selectScenario` takes. Default: `Scenario <n>`. Its slug is the default `persist` key of a listed scenario */
+  name?: string;
+  /** one line under the name in the selector: what this scenario puts the UI through */
+  description?: string;
   chainId?: number;
   /** seed for ctx.random() and the actors; omit for a fresh seed per boot */
   seed?: number;
@@ -119,3 +124,8 @@ export interface ScenarioConfig {
 }
 
 export function defineScenario(config: ScenarioConfig): ScenarioConfig { return config; }
+/** several scenarios in one file: the dev bar shows a selector, each keeps its own persisted chain, the choice survives
+ *  reloads. `export default defineScenarios([fresh, afterCrash, indexerDown])`; a plain array works too */
+export function defineScenarios(list: ScenarioConfig[]): ScenarioConfig[] { return list; }
+/** what the Worker entry hands to `runScenario`: one scenario or a list */
+export type ScenarioInput = ScenarioConfig | ScenarioConfig[];

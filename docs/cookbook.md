@@ -33,6 +33,7 @@ same RPC surface, so a recipe written for one works in the others with the obvio
 23. [React without the Vite plugin](#23-react-without-the-vite-plugin)
 24. [The transaction explorer](#24-the-transaction-explorer)
 25. [wagmi: reads on the Terrarium chain](#25-wagmi-reads-on-the-terrarium-chain)
+26. [Several scenarios](#26-several-scenarios)
 
 The rule behind all of them: **write leaf state, produce structural state.** Balances, allowances, an oracle answer,
 a config flag can be written directly. Pool reserves, positions, interest indexes, LP supply must be produced by real
@@ -441,3 +442,22 @@ createConfig({ chains: [mainnet, terrarium], transports: { [mainnet.id]: http(),
 Keep it behind the same guard as the mount: a page without a Terrarium has nothing to find, and reads on that chain fail
 the way reads on an unreachable RPC would. The wallet side needs nothing: wagmi's `injected()` discovery lists "Terrarium
 Wallet" like any extension.
+
+## 26. Several scenarios
+
+One file, a list: the dev bar grows a selector, each scenario keeps its own chain, the choice survives reloads. Start from a
+base and change one thing per variant:
+
+```ts
+const fresh = defineScenario({ name: 'Frogpond', description: 'The pond as it opens', persist: 'frogpond', async setup(ctx) { /* … */ } });
+const afterTheDump = defineScenario({
+  ...fresh, name: 'After a whale dump', description: 'Someone sold 40M PEPE into the pool: a crashed price, a cliff on the chart',
+  async setup(ctx) { await fresh.setup!(ctx); if (ctx.fresh) await sellAsWhale(ctx, parseEther('40000000')); },
+});
+const indexerDown = defineScenario({ ...fresh, name: 'Indexer down', description: 'The subgraph answers 503 from the first request', async setup(ctx) { await fresh.setup!(ctx); ctx.state.indexer = 'down'; } });
+export default defineScenarios([fresh, afterTheDump, indexerDown]);
+```
+
+A listed scenario persists under the slug of its name (`after-a-whale-dump`) unless it sets `persist`; **Reset** wipes only the
+active one. From a test: `terrarium_scenarios` lists them, `terrarium_selectScenario('Indexer down')` stores the choice and asks
+the page to reload; `terrarium_status().scenario` says which one is running.
