@@ -13,8 +13,14 @@ It executes one transaction per call. Everything else stays in JavaScript: accou
 reverts, blocks and receipts, persistence, fork recording. The engine asks the host for what it reads and returns a
 state diff to apply:
 
+Two entry points: `run(host, request)` executes one transaction and returns its state diff; `estimate(host, request)` runs
+reth's gas estimation (a run at the cap, the optimistic 64/63 probe, a bisection from ~3× the gas used, within 1.5 %) in one
+call against a read cache, committing nothing. Analysed bytecode is cached by code hash across calls: `host.account(address,
+wantCode)` may omit `code` when `wantCode` is false (never answer `'0x'` for a contract). Built with `wasm-opt -O3` and
+`panic = "abort"`: 1.29 MB, 463 KB gzipped.
+
 ```js
-import init, { run, version } from '@terrariumlabs/evm';
+import init, { run, estimate, version } from '@terrariumlabs/evm';
 await init({ module_or_path: wasmBytesOrUrl });
 const result = JSON.parse(run(host, JSON.stringify({ tx, block, cfg })));
 // result: { success, reason, gasUsed, gasRefunded, output, created, logs, state, sloads }

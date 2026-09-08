@@ -22,11 +22,11 @@
 | `baseFeePerGas` | 1 gwei | base fee of every block (until `anvil_setNextBlockBaseFeePerGas`) |
 | `blockGasLimit` | 30,000,000 | block gas limit; also the gas limit of `gasEstimation: 'fast'` transactions |
 | `mining` | `{ mode: 'auto' }` | `auto` (a block per tx), `manual` (`evm_mine`), `interval` (`evm_setIntervalMining`), `follow` (`sim.followChain`) |
-| `gasEstimation` | `'exact'` | `'exact'`: geth-style estimation against the **pending** block (full run, 64/63 probe, binary search). `'fast'`: block gas limit, no estimation (CI) |
+| `gasEstimation` | `'exact'` | `'exact'`: reth-style estimation against the **pending** block, run inside the wasm engine in one call (a run at the cap, the optimistic (used + refunded + stipend) · 64/63 probe, then a bisection starting near 3× the gas used, within 1.5 %; the runs share a read cache and touch no state). Formerly geth-style in JavaScript (full run, 64/63 probe, binary search). `'fast'`: block gas limit, no estimation (CI) |
 | `clock` | `() => Math.floor(Date.now()/1000)` | seconds source for block timestamps. Blocks are at least one second apart; a fixed clock gives deterministic timestamps |
 | `seed` | random | seed for `sim.random()` (mulberry32) |
 | `wallet` | `{ rejectNext: 0, latencyMs: 0, receiptLagMs: 0 }` | wallet realism knobs, see `terrarium_setWallet` |
-| `persist` | none | `{ storage, key?, debounceMs?, maxTxBlocks? }`; `storage` has async `getItem/setItem` (`indexedDBStorage()`, `localStorage`, anything). Default key `terrarium:<chainId>`, debounce 50 ms, tx bodies kept for the last 2000 blocks |
+| `persist` | none | `{ storage, key?, debounceMs?, maxTxBlocks? }`; `storage` has async `getItem/setItem/removeItem` (`indexedDBStorage()`, `localStorage`, anything). Saves are incremental: blocks live in chunks of 64 under `<key>:b<i>` and only the chunks that changed are rewritten, plus a small core under `<key>` (state, recent tx bodies, journal, block count); a value in the pre-0.7 whole-dump format still loads and is converted on the next save. Default key `terrarium:<chainId>`, debounce 50 ms, tx bodies kept for the last 2000 blocks |
 | `restore` | none | a dump from `sim.dumpState()` to start from; with `persist`, it is the baseline used only when nothing was persisted yet |
 | `fork` | none | `{ url?, blockNumber, offline? }`: read remote state lazily from a node at `blockNumber`; every read is recorded into the dump. The local chain starts at `blockNumber + 1` (earlier blocks are not served). `offline: true`: no network; a read the fixture cannot answer throws `OfflineStateError` and is listed in `sim.offlineMisses` |
 | `methods` | `{}` | extra RPC methods `{ name: (...params) => result }`, reachable through `provider` and `node` |
@@ -50,7 +50,7 @@
 | `transactions({ limit = 50, before? })` | `{ total, pending, failed, transactions }` newest first (pending first): each is the RPC tx merged with `receipt`, a `status` word (`pending` \| `success` \| `reverted` \| `dropped`), `error` and `revertData` of a failed one, and the block `timestamp`. `before: hash` pages. What the dev bar's explorer reads (through `terrarium_transactions`) |
 | `onLog(filter, handler)` | run `handler(log, { blockNumber })` after a block with a matching log (actors); returns an unsubscribe function |
 | `addMethod(name, fn)` | register an RPC method at runtime. Extension methods run **outside** the state lock so they can call other RPC methods |
-| `dumpState()`, `loadState(dump)`, `replayJournal(journal)`, `journal`, `flush()` | persistence; `journal` lists the state-changing RPC calls since boot (a replay is not re-recorded) |
+| `dumpState()`, `loadState(dump)`, `replayJournal(journal)`, `journal`, `flush()`, `clearPersisted()` | persistence (`clearPersisted` removes the core and every block chunk under the key); `journal` lists the state-changing RPC calls since boot (a replay is not re-recorded) |
 | `followChain(url, { pollMs, onBlock })`, `stop()` | mirror a live chain's block numbers and timestamps; stop timers and persistence |
 | `announce(window)` | announce as an EIP-6963 wallet (`rdns: 'dev.terrarium'`; the injected layer does this for you) |
 

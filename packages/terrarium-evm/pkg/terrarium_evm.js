@@ -1,6 +1,36 @@
 /* @ts-self-types="./terrarium_evm.d.ts" */
 
 /**
+ * Estimate the gas for a transaction (same request shape as `run`; `tx.gasLimit` is the cap, usually the block gas
+ * limit). reth's algorithm, all inside wasm: one run at the cap (a failure there is the answer: the tx reverts), the
+ * optimistic `(used + refunded + stipend) · 64/63` probe, then bisection between `used - 1` and the best known limit,
+ * starting at `min(3 · used, mid)`, stopping within 1.5 %. Returns a JSON EstimateResult. Throws `missing` like `run`.
+ * @param {any} host
+ * @param {string} request
+ * @returns {string}
+ */
+export function estimate(host, request) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(request, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.estimate(host, ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
  * Execute one transaction. `request` is a JSON string (RunRequest); returns a JSON string (RunResult).
  * Throws a string starting with `missing` when the host could not provide some state (re-run after fetching), and a
  * string starting with `invalid:` for a transaction the node would refuse (bad nonce, insufficient funds...).
@@ -78,11 +108,11 @@ function __wbg_get_imports() {
         __wbg___wbindgen_throw_bb96b2010945f0bc: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
         },
-        __wbg_account_865c9c68e728eee9: function() { return handleError(function (arg0, arg1, arg2) {
-            const ret = arg0.account(getStringFromWasm0(arg1, arg2));
+        __wbg_account_56bab912b202698f: function() { return handleError(function (arg0, arg1, arg2, arg3) {
+            const ret = arg0.account(getStringFromWasm0(arg1, arg2), arg3 !== 0);
             return ret;
         }, arguments); },
-        __wbg_blockHash_7e3aa4fc3b1cfb6b: function() { return handleError(function (arg0, arg1) {
+        __wbg_blockHash_767bc4c470457615: function() { return handleError(function (arg0, arg1) {
             const ret = arg0.blockHash(arg1);
             return ret;
         }, arguments); },
@@ -90,7 +120,7 @@ function __wbg_get_imports() {
             const ret = Reflect.get(arg0, arg1);
             return ret;
         }, arguments); },
-        __wbg_storage_51594800c64c7b13: function() { return handleError(function (arg0, arg1, arg2, arg3, arg4) {
+        __wbg_storage_cd38fcce66b0ec85: function() { return handleError(function (arg0, arg1, arg2, arg3, arg4) {
             const ret = arg0.storage(getStringFromWasm0(arg1, arg2), getStringFromWasm0(arg3, arg4));
             return ret;
         }, arguments); },

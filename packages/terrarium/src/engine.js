@@ -191,7 +191,7 @@ export async function createTerrarium(opts = {}) {
   // (account) or is zero (slot). No round trip, no re-run. With a fork the truth may be remote: load it (recorded).
   const local = stateMode !== 'rpc';
   const revmHost = {
-    account(address) {
+    account(address, wantCode = true) {
       const key = address.toLowerCase(); let a = mirrorGet('accounts', key);
       if (a === undefined) {
         if (local) { mirror[0].accounts.set(key, null); a = null; }
@@ -205,8 +205,9 @@ export async function createTerrarium(opts = {}) {
         }
       }
       if (a === null) return null;
-      let code = '0x';
-      if (a.codeHash !== KECCAK_EMPTY) { code = mirrorGet('code', key); if (code === undefined) { misses.push(() => mirrorLoad('code', key)); throw { missing: true }; } }
+      if (a.codeHash === KECCAK_EMPTY) return { balance: hex(a.balance), nonce: hex(a.nonce), codeHash: a.codeHash, code: '0x' };
+      if (!wantCode) return { balance: hex(a.balance), nonce: hex(a.nonce), codeHash: a.codeHash };   // no `code` key: wasm has it cached by hash, or asks again with wantCode
+      const code = mirrorGet('code', key); if (code === undefined) { misses.push(() => mirrorLoad('code', key)); throw { missing: true }; }
       return { balance: hex(a.balance), nonce: hex(a.nonce), codeHash: a.codeHash, code };
     },
     storage(address, slot) { const key = `${address.toLowerCase()}:${slot.toLowerCase()}`; const v = mirrorGet('storage', key); if (v !== undefined) return v; if (local) { mirror[0].storage.set(key, ZERO32); return ZERO32; } misses.push(() => mirrorLoad('storage', key)); throw { missing: true }; },
@@ -221,24 +222,32 @@ export async function createTerrarium(opts = {}) {
       for (const [slot, value] of c.storage) await sm.putStorage(a, hexToBytes(slot), hexToBytes(value));
     }
   }
-  async function execRevm({ tx, msg, block, flags = {} }) {
+  function revmRequest({ tx, msg, block, flags = {} }) {
     let m = tx ? msgOf(tx) : { ...msg, gasPrice: 0n, priorityFee: 0n, nonce: 0n };
     if (!tx) flags = { ...flags, skipBalance: true, skipNonce: true, noBaseFee: true, skipEip3607: true };
-    const req = JSON.stringify({ tx: { from: m.from, to: m.to, value: hex(m.value), data: m.data, gasLimit: hex(m.gasLimit), gasPrice: hex(m.gasPrice), priorityFee: hex(m.priorityFee), nonce: hex(m.nonce), txType: 2 },
+    return JSON.stringify({ tx: { from: m.from, to: m.to, value: hex(m.value), data: m.data, gasLimit: hex(m.gasLimit), gasPrice: hex(m.gasPrice), priorityFee: hex(m.priorityFee), nonce: hex(m.nonce), txType: 2 },
       block: { number: hex(block.header.number), timestamp: hex(block.header.timestamp), gasLimit: hex(block.header.gasLimit), baseFee: hex(block.header.baseFeePerGas ?? 0n) },
       cfg: { chainId, spec: String(hardfork), skipBalance: !!flags.skipBalance, skipNonce: !!flags.skipNonce, skipBlockGasLimit: true, noBaseFee: !!flags.noBaseFee, skipEip3607: !!flags.skipEip3607, traceSloads: !!flags.traceSloads } });
-    stats.runs++;
+  }
+  /** one wasm call (`run` or `estimate`), re-issued after each round of state fetching in fork mode */
+  async function revmCall(fn, req) {
     for (let round = 0; ; round++) {
       misses.length = 0; stats.rounds++;
-      let out;
       const t0 = Date.now();
-      try { out = JSON.parse(revm.run(revmHost, req)); stats.wasmMs += Date.now() - t0; }
+      try { const out = JSON.parse(fn(revmHost, req)); stats.wasmMs += Date.now() - t0; return out; }
       catch (e) {
         stats.wasmMs += Date.now() - t0;
         if (misses.length) { if (round > 100000) throw new Error('revm: state loading did not converge'); for (const load of misses.splice(0)) await load(); continue; }
         const message = String(e?.message ?? e);
         throw new Error(message.startsWith('invalid:') ? message : `revm: ${message}`);
       }
+    }
+  }
+  async function execRevm(args) {
+    const req = revmRequest(args);
+    stats.runs++;
+    {
+      const out = await revmCall(revm.run, req);
       await applyRevmState(out.state);
       return { success: out.success, error: out.success ? null : out.reason, gasUsed: BigInt(out.gasUsed), gasRefund: BigInt(out.gasRefunded), returnValue: hexToBytes(out.output), logs: out.logs.map((l) => [hexToBytes(l.address), l.topics.map(hexToBytes), hexToBytes(l.data)]), createdAddress: out.created, sloads: out.sloads.map(([address, slot]) => ({ address: address.toLowerCase(), slot })) };
     }
@@ -262,6 +271,11 @@ export async function createTerrarium(opts = {}) {
   let recording = true;
   const tsQueue = [];          // block timestamps to reuse during replay (determinism)
   let persister = null, persistKey = null, persistTimer = null;
+  // incremental persistence: blocks are stored in chunks of PERSIST_CHUNK under `<key>:b<i>`; `dirtyFrom` is the lowest block
+  // index changed since the last save (Infinity: none), `persistedChunks` how many chunk keys the store holds
+  const PERSIST_CHUNK = 64;
+  let dirtyFrom = Infinity, persistedChunks = 0;
+  const markDirty = (index) => { if (index < dirtyFrom) dirtyFrom = index; };
   const dealtSlots = new Map(); // token -> balance slot discovered by probing
   const impersonated = new Set();
   const exclusive = createLock();
@@ -273,7 +287,7 @@ export async function createTerrarium(opts = {}) {
 
   function pushBlock(header, txHashes, receipts) {
     const b = { ...header, transactions: txHashes, receipts };
-    blocks.push(b);
+    markDirty(blocks.length); blocks.push(b);
     return b;
   }
   const stateRootOf = async () => (stateMode === 'merkle' ? bytesToHex(await sm.getStateRoot()) : (opts.stateRoot ?? ZERO32));
@@ -425,27 +439,18 @@ export async function createTerrarium(opts = {}) {
 
   /** Execute a hypothetical tx with a given gas limit on a rollback — real transaction semantics (intrinsic gas,
    *  63/64 rule for sub-calls, refunds), no state change. */
-  async function simulateTx(p, gasLimit) {
-    const from = getAddress(p.from ?? accounts[0].address);
-    const acct = (await sm.getAccount(createAddressFromString(from))) ?? new Account();
-    const tx = impersonatedTx({ chainId: BigInt(chainId), nonce: acct.nonce, maxFeePerGas: baseFee * 2n, maxPriorityFeePerGas: 1n, gasLimit, to: p.to ?? undefined, value: p.value ? hexToBigInt(p.value) : 0n, data: p.data ?? p.input ?? '0x' }, from);
-    return withRollback(() => exec({ tx, block: pendingBlock(), flags: { skipNonce: true, skipBalance: true } }));
-  }
-  /** geth/anvil-style estimation: one full run, an optimistic 64/63 probe, then binary search if needed. */
+  /** reth-style estimation, run inside the wasm engine in ONE call: a run at the cap (a revert there is the answer),
+   *  the optimistic (used + refunded + stipend) · 64/63 probe, then a bisection that starts near 3× the gas used and stops
+   *  within 1.5 %. The runs share a read cache and commit nothing, so the state manager is never touched. */
   async function estimateGas(p) {
     const cap = p.gas ? hexToBigInt(p.gas) : gasLimit;
-    const first = await simulateTx(p, cap);
-    if (!first.success) throw revertError(first);
-    const ok = async (g) => { try { const r = await simulateTx(p, g); return r.success; } catch { return false; } };
-    let lo = first.gasUsed - 1n, hi = cap;
-    const optimistic = ((first.gasUsed + first.gasRefund) * 64n) / 63n + 1n;   // usually exact
-    if (optimistic < hi && (await ok(optimistic))) hi = optimistic;
-    while (lo + 1n < hi) {                                                             // shrink to the minimum that succeeds
-      if (hi - lo <= hi / 64n) break;                                                  // 1.5 % tolerance like geth
-      const mid = (lo + hi) / 2n;
-      if (await ok(mid)) hi = mid; else lo = mid;
-    }
-    return hi;
+    const from = getAddress(p.from ?? accounts[0].address);
+    const acct = (await sm.getAccount(createAddressFromString(from))) ?? new Account();
+    const tx = impersonatedTx({ chainId: BigInt(chainId), nonce: acct.nonce, maxFeePerGas: baseFee * 2n, maxPriorityFeePerGas: 1n, gasLimit: cap, to: p.to ?? undefined, value: p.value ? hexToBigInt(p.value) : 0n, data: p.data ?? p.input ?? '0x' }, from);
+    const out = await revmCall(revm.estimate, revmRequest({ tx, block: pendingBlock(), flags: { skipNonce: true, skipBalance: true } }));
+    stats.runs += out.runs;
+    if (!out.success) throw revertError({ error: out.reason, returnValue: hexToBytes(out.output), gasUsed: BigInt(out.gasUsed) });
+    return BigInt(out.gas);
   }
 
   /** Transactions newest first, as an explorer lists them: the RPC tx merged with its receipt, a `status` word, the
@@ -619,7 +624,7 @@ export async function createTerrarium(opts = {}) {
     const i = snapshots.findIndex((s) => s.id === id); if (i < 0) return false;
     let target;
     while (snapshots.length > i) { target = snapshots.pop(); await sm.revert(); }
-    blocks.length = target.blocksLen; journal.length = target.journalLen; pending.length = 0;
+    markDirty(target.blocksLen); blocks.length = target.blocksLen; journal.length = target.journalLen; pending.length = 0;
     timeOffset = target.timeOffset; nextTimestamp = target.nextTimestamp; baseFee = target.baseFee;   // the clock is state too
     const head = latest().number;
     for (const [h, t] of txs) if (!t.receipt || hexToBigInt(t.receipt.blockNumber) > head) txs.delete(h);
@@ -756,7 +761,9 @@ export async function createTerrarium(opts = {}) {
   // ---- persistence: dump the diff, restore it, or replay the journal -------------------------------
   const serBlock = (b) => ({ ...b, number: hex(b.number), timestamp: hex(b.timestamp), gasLimit: hex(b.gasLimit), gasUsed: hex(b.gasUsed), baseFeePerGas: hex(b.baseFeePerGas) });
   const deserBlock = (b) => ({ ...b, number: hexToBigInt(b.number), timestamp: hexToBigInt(b.timestamp), gasLimit: hexToBigInt(b.gasLimit), gasUsed: hexToBigInt(b.gasUsed), baseFeePerGas: hexToBigInt(b.baseFeePerGas) });
-  async function dumpState() {
+  async function dumpState() { const core = await dumpCore(); return { ...core, chain: { ...core.chain, blocks: blocks.map(serBlock) } }; }
+  /** everything but the blocks (the part the incremental save rewrites every time) */
+  async function dumpCore() {
     const keepFrom = latest().number - BigInt(opts.persist?.maxTxBlocks ?? 2000);
     const accountsOut = {};
     for (const a of touched.accounts) { const acct = await sm.getAccount(createAddressFromString(a)); accountsOut[a] = acct ? { nonce: hex(acct.nonce), balance: hex(acct.balance), codeHash: bytesToHex(acct.codeHash) } : null; }
@@ -765,7 +772,7 @@ export async function createTerrarium(opts = {}) {
     const remote = sm.remote ? { accounts: Object.fromEntries([...sm.remote.accounts].map(([a, acct]) => [a, acct ? { nonce: hex(acct.nonce), balance: hex(acct.balance), codeHash: bytesToHex(acct.codeHash) } : null])), code: Object.fromEntries([...sm.remote.code].map(([a, c]) => [a, bytesToHex(c)])), storage: Object.fromEntries([...sm.remote.storage].map(([k, v]) => [k, bytesToHex(v)])) } : undefined;
     return { version: 1, chainId, savedAt: Date.now(), state: { accounts: accountsOut, code: codeOut, storage: storageOut }, remote,
       // tx bodies: only the most recent blocks' worth (like a pruned node), and without their logs (rebuilt from block logs on load)
-      chain: { blocks: blocks.map(serBlock), txs: Object.fromEntries([...txs].filter(([, t]) => !t.receipt || hexToBigInt(t.receipt.blockNumber) >= keepFrom).map(([h, t]) => [h, { rpc: t.rpc, receipt: t.receipt ? { ...t.receipt, logs: undefined } : null, error: t.error, revertData: t.revertData, dropped: t.dropped }])), timeOffset: hex(timeOffset), baseFee: hex(baseFee), mining, impersonated: [...impersonated], dealtSlots: Object.fromEntries(dealtSlots) },
+      chain: { txs: Object.fromEntries([...txs].filter(([, t]) => !t.receipt || hexToBigInt(t.receipt.blockNumber) >= keepFrom).map(([h, t]) => [h, { rpc: t.rpc, receipt: t.receipt ? { ...t.receipt, logs: undefined } : null, error: t.error, revertData: t.revertData, dropped: t.dropped }])), timeOffset: hex(timeOffset), baseFee: hex(baseFee), mining, impersonated: [...impersonated], dealtSlots: Object.fromEntries(dealtSlots) },
       journal: { entries: journal, timestamps: blocks.slice(1).map((b) => hex(b.timestamp)) } };
   }
   async function seedState({ accounts: accs = {}, code = {}, storage = {} }) {
@@ -779,7 +786,7 @@ export async function createTerrarium(opts = {}) {
       for (const [k, v] of Object.entries(dump.remote.storage)) { const [a, slot] = k.split('_'); await sm.putStorage(createAddressFromString(a), hexToBytes(slot), hexToBytes(v)); }
     }
     await seedState(dump.state);
-    blocks.length = 0; for (const b of dump.chain.blocks) blocks.push(deserBlock(b));
+    markDirty(0); blocks.length = 0; for (const b of dump.chain.blocks) blocks.push(deserBlock(b));
     txs.clear(); for (const [h, t] of Object.entries(dump.chain.txs)) { if (t.receipt) t.receipt.logs = []; txs.set(h, t); }
     for (const b of blocks) for (const l of b.logs) { const t = txs.get(l.transactionHash); if (t?.receipt) t.receipt.logs.push(l); }
     timeOffset = hexToBigInt(dump.chain.timeOffset); baseFee = hexToBigInt(dump.chain.baseFee); mining = dump.chain.mining;
@@ -792,16 +799,46 @@ export async function createTerrarium(opts = {}) {
     recording = false; tsQueue.push(...(j.timestamps ?? []).map(hexToBigInt));
     try { for (const e of j.entries) await dispatch(e); } finally { recording = true; tsQueue.length = 0; }
   }
+  /** write what changed: the dirty block chunks, chunks past the head removed (a revert), then the core with the block count.
+   *  Chunks first, core last, so a crash in between leaves a core that never points past what the store holds. */
+  async function persistNow() {
+    if (!persister) return;
+    const key = persistKey, store = persister;
+    const nChunks = Math.ceil(blocks.length / PERSIST_CHUNK);
+    const firstDirty = dirtyFrom === Infinity ? nChunks : Math.floor(Math.min(dirtyFrom, blocks.length) / PERSIST_CHUNK);
+    for (let i = firstDirty; i < nChunks; i++) await store.setItem(`${key}:b${i}`, JSON.stringify(blocks.slice(i * PERSIST_CHUNK, (i + 1) * PERSIST_CHUNK).map(serBlock)));
+    for (let i = nChunks; i < persistedChunks; i++) await store.removeItem(`${key}:b${i}`);
+    const core = await dumpCore();
+    await store.setItem(key, JSON.stringify({ ...core, chain: { ...core.chain, blockCount: blocks.length, chunk: PERSIST_CHUNK } }));
+    persistedChunks = nChunks; dirtyFrom = Infinity;
+  }
+  /** the persisted chain: a core + block chunks (or a whole dump, the pre-0.7 format) → a full dump, or null */
+  async function readPersisted(store, key) {
+    const raw = await store.getItem(key); if (!raw) return null;
+    const saved = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (saved.chain?.blocks) return saved;   // legacy: everything in one value
+    const all = [], n = Math.ceil((saved.chain?.blockCount ?? 0) / (saved.chain?.chunk ?? PERSIST_CHUNK));
+    for (let i = 0; i < n; i++) { const c = await store.getItem(`${key}:b${i}`); if (!c) break; all.push(...(typeof c === 'string' ? JSON.parse(c) : c)); }
+    return { ...saved, chain: { ...saved.chain, blocks: all.slice(0, saved.chain.blockCount) } };
+  }
+  /** remove everything this engine persisted under its key (the core and every block chunk) */
+  async function clearPersisted() {
+    if (!persister) return;
+    const raw = await persister.getItem(persistKey); const saved = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : null;
+    const n = Math.max(persistedChunks, Math.ceil((saved?.chain?.blockCount ?? 0) / (saved?.chain?.chunk ?? PERSIST_CHUNK)));
+    for (let i = 0; i < n; i++) await persister.removeItem(`${persistKey}:b${i}`);
+    await persister.removeItem(persistKey); persistedChunks = 0; dirtyFrom = 0;
+  }
   function schedulePersist() {
     if (!persister) return;
     clearTimeout(persistTimer);
-    persistTimer = setTimeout(() => exclusive(async () => persister.setItem(persistKey, JSON.stringify(await dumpState()))).catch((e) => console.warn('terrarium persist failed', e)), opts.persist?.debounceMs ?? 50);
+    persistTimer = setTimeout(() => exclusive(persistNow).catch((e) => console.warn('terrarium persist failed', e)), opts.persist?.debounceMs ?? 50);
   }
   let restoredFromPersistence = false;
   if (opts.persist) {
     persister = opts.persist.storage; persistKey = opts.persist.key ?? `terrarium:${chainId}`;
-    const saved = await persister.getItem(persistKey);
-    if (saved) { await loadState(typeof saved === 'string' ? JSON.parse(saved) : saved); restoredFromPersistence = true; }
+    const saved = await readPersisted(persister, persistKey);
+    if (saved) { await loadState(saved); restoredFromPersistence = true; if (!saved.chain.chunk) { dirtyFrom = 0; persistedChunks = 0; } else { dirtyFrom = Infinity; persistedChunks = Math.ceil(blocks.length / PERSIST_CHUNK); } }   // a legacy dump is rewritten in chunks on the next save
   }
   if (!restoredFromPersistence && opts.restore) await loadState(opts.restore);   // a recorded fixture as the baseline
 
@@ -820,7 +857,9 @@ export async function createTerrarium(opts = {}) {
     slotFromLayout,
     /** Persistence: dump the diff (+ fork fixture), restore, or replay the journal onto new bytecode. */
     dumpState: () => exclusive(dumpState), loadState: (d) => exclusive(() => loadState(d)), replayJournal: (j) => exclusive(() => replayJournal(j)),
-    get journal() { return journal.slice(); }, flush: () => { clearTimeout(persistTimer); return persister ? exclusive(async () => persister.setItem(persistKey, JSON.stringify(await dumpState()))) : Promise.resolve(); },
+    get journal() { return journal.slice(); }, flush: () => { clearTimeout(persistTimer); return persister ? exclusive(persistNow) : Promise.resolve(); },
+    /** remove this engine's persisted chain (core + block chunks) from the store */
+    clearPersisted: () => exclusive(clearPersisted),
     get blockNumber() { return latest().number; },
     /** transactions newest first ({ total, pending, failed, transactions }): tx + receipt + status word + revert reason/data + block timestamp */
     transactions: (o) => listTransactions(o),

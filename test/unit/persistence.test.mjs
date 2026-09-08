@@ -39,7 +39,7 @@ test('persist: auto-saved after a debounce, flush() forces it, a second boot res
   const { t, pepe } = await populated({ persist: { storage, debounceMs: 10 } });
   await until(() => storage.map.has('terrarium:31337'), 3000, 'the debounced auto-save'); assert.ok(storage.map.has('terrarium:31337'), 'default key');
   await t.rpc('evm_mine'); await t.sim.flush();
-  assert.equal(JSON.parse(storage.map.get('terrarium:31337')).chain.blocks.length, 5);
+  assert.equal(JSON.parse(storage.map.get('terrarium:31337')).chain.blockCount, 5); assert.equal(JSON.parse(storage.map.get('terrarium:31337:b0')).length, 5, 'blocks live in chunk keys');
   const b = await boot({ persist: { storage } });
   assert.equal(b.sim.restoredFromPersistence, true); assert.equal(b.sim.blockNumber, 4n);
   assert.equal(await bal(b, pepe, b.accounts[0]), parseEther('3'));
@@ -88,4 +88,33 @@ test('determinism: same seed → same random sequence; the clock is injectable',
   assert.deepEqual(seq(a), seq(b)); assert.notDeepEqual(seq(a), seq(c));
   assert.equal(a.seed, 42); assert.equal(a.now(), 5n);
   assert.equal(Number((await a.provider.request({ method: 'eth_getBlockByNumber', params: ['0x0', false] })).timestamp), 5);
+});
+
+test('incremental persistence: a save rewrites only the dirty block chunks and the core; a revert drops chunks; a legacy whole dump still loads; clearPersisted removes everything', async () => {
+  const storage = memoryStorage(); const writes = [];
+  const spy = { ...storage, setItem: async (k, v) => { writes.push(k); return storage.setItem(k, v); } };
+  const t = await boot({ persist: { storage: spy, key: 'k' } });
+  const [a, b] = t.accounts;
+  for (let i = 0; i < 130; i++) await t.rpc('eth_sendTransaction', [{ from: a, to: b, value: '0x1' }]);   // 130 blocks = chunks b0 (64), b1 (64), b2 (2)
+  await t.sim.flush();
+  assert.deepEqual([...storage.map.keys()].sort(), ['k', 'k:b0', 'k:b1', 'k:b2']);
+  assert.equal(JSON.parse(storage.map.get('k')).chain.blockCount, 131); assert.equal(JSON.parse(storage.map.get('k:b2')).length, 3);
+  writes.length = 0;
+  await t.rpc('eth_sendTransaction', [{ from: a, to: b, value: '0x1' }]); await t.sim.flush();
+  assert.deepEqual(writes, ['k:b2', 'k'], 'one more block: only the last chunk and the core are written');
+  const snap = await t.rpc('evm_snapshot'); for (let i = 0; i < 70; i++) await t.rpc('evm_mine'); await t.sim.flush();
+  assert.ok(storage.map.has('k:b3'), 'grew into a fourth chunk');
+  writes.length = 0; await t.rpc('evm_revert', [snap]); await t.sim.flush();
+  assert.equal(storage.map.has('k:b3'), false, 'the revert removed the chunk past the head'); assert.deepEqual(writes, ['k:b2', 'k']);
+  // a second engine restores the same chain from core + chunks
+  const t2 = await boot({ persist: { storage, key: 'k' } });
+  assert.equal(t2.sim.blockNumber, t.sim.blockNumber); assert.equal(t2.sim.restoredFromPersistence, true);
+  assert.equal((await t2.rpc('eth_getBlockByNumber', ['0x5', false])).hash, (await t.rpc('eth_getBlockByNumber', ['0x5', false])).hash);
+  // a legacy value (the whole dump under the key) loads, and the next save converts it
+  const legacy = memoryStorage(); await legacy.setItem('L', JSON.stringify(await t.sim.dumpState()));
+  const t3 = await boot({ persist: { storage: legacy, key: 'L' } });
+  assert.equal(t3.sim.blockNumber, t.sim.blockNumber); await t3.sim.flush();
+  assert.ok(legacy.map.has('L:b0') && JSON.parse(legacy.map.get('L')).chain.blockCount === Number(t.sim.blockNumber) + 1, 'converted to chunks');
+  await t3.sim.clearPersisted(); assert.deepEqual([...legacy.map.keys()], [], 'clearPersisted removed the core and every chunk');
+  t.sim.stop(); t2.sim.stop(); t3.sim.stop();
 });

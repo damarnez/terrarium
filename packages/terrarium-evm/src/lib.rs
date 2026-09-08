@@ -4,6 +4,12 @@
 //! only executes: it asks the host for whatever it reads, and returns the result plus the state diff to apply.
 //! If the host cannot answer synchronously (fork mode: the slot has to be fetched from a node), it throws an error
 //! marked `missing`; execution aborts, the host fetches, and re-runs. Reads are recorded, so re-runs are exact.
+//!
+//! Two entry points: `run` executes one transaction and returns its state diff; `estimate` runs reth's gas estimation
+//! (first run at the cap, the optimistic 64/63 probe, then a bisection that starts near 3× the gas used) entirely in
+//! here, against a read cache, so the host answers each account and slot once and JavaScript makes one call.
+//! Analysed bytecode is cached by code hash across calls: the host is asked for a contract's code once, not per read.
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::str::FromStr;
 
@@ -17,7 +23,7 @@ use revm::interpreter::interpreter_types::{InputsTr, Jumps, StackTr};
 #[allow(unused_imports)] use StackTr as _StackTrUsed;
 use revm::interpreter::Interpreter;
 use revm::primitives::hardfork::SpecId;
-use revm::primitives::{Address, Bytes, TxKind, B256, U256};
+use revm::primitives::{Address, Bytes, TxKind, B256, KECCAK_EMPTY, U256};
 use revm::state::{AccountInfo, Bytecode};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
@@ -26,9 +32,10 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen]
 extern "C" {
     pub type Host;
-    /// -> null (no account) | { balance, nonce, codeHash, code } as hex strings. Throws { missing: true } to abort.
+    /// -> null (no account) | { balance, nonce, codeHash, code? } as hex strings. `want_code` false: the host may omit
+    /// `code` (this side has it cached by codeHash); a host that always includes it works too. Throws { missing: true } to abort.
     #[wasm_bindgen(method, catch)]
-    fn account(this: &Host, address: &str) -> Result<JsValue, JsValue>;
+    fn account(this: &Host, address: &str, want_code: bool) -> Result<JsValue, JsValue>;
     /// -> 32-byte hex
     #[wasm_bindgen(method, catch)]
     fn storage(this: &Host, address: &str, slot: &str) -> Result<JsValue, JsValue>;
@@ -57,26 +64,44 @@ fn parse_b256(s: &str) -> Result<B256, HostError> { B256::from_str(s).map_err(|e
 fn parse_addr(s: &str) -> Result<Address, HostError> { Address::from_str(s).map_err(|e| HostError::Other(format!("bad address {s}: {e}"))) }
 fn parse_bytes(s: &str) -> Result<Bytes, HostError> { Bytes::from_str(s).map_err(|e| HostError::Other(format!("bad bytes: {e}"))) }
 
-/// revm's view of the world: every read goes to the host, cached for the duration of one run.
+// analysed bytecode by code hash, kept across calls (a dev chain has a few dozen contracts; cleared if it ever balloons)
+thread_local! { static CODE_CACHE: RefCell<HashMap<B256, Bytecode>> = RefCell::new(HashMap::new()); }
+const CODE_CACHE_MAX: usize = 4096;
+
+/// revm's view of the world: every read goes to the host, cached for the duration of one call (`run`, or a whole
+/// `estimate`: its runs share the cache, and nothing is ever committed, so the host is asked once per key).
 struct HostDb<'a> { host: &'a Host, accounts: HashMap<Address, Option<AccountInfo>>, storage: HashMap<(Address, U256), U256> }
 
 impl<'a> Database for HostDb<'a> {
     type Error = HostError;
     fn basic(&mut self, address: Address) -> Result<Option<AccountInfo>, HostError> {
         if let Some(a) = self.accounts.get(&address) { return Ok(a.clone()); }
-        let v = self.host.account(&format!("{address:?}")).map_err(js_err)?;
+        let key = format!("{address:?}");
+        let v = self.host.account(&key, false).map_err(js_err)?;
         let info = if v.is_null() || v.is_undefined() { None } else {
-            let code = parse_bytes(&js_str(&v, "code")?)?;
             let code_hash = parse_b256(&js_str(&v, "codeHash")?)?;
             let mut info = AccountInfo::default();
             info.balance = parse_u256(&js_str(&v, "balance")?)?; info.nonce = parse_u256(&js_str(&v, "nonce")?)?.to::<u64>(); info.code_hash = code_hash;
-            if !code.is_empty() { info.code = Some(Bytecode::new_raw(code)); }   // code comes with the account: revm never needs code_by_hash
+            if code_hash != KECCAK_EMPTY {
+                let cached = CODE_CACHE.with(|c| c.borrow().get(&code_hash).cloned());
+                let bytecode = match cached {
+                    Some(b) => b,
+                    None => {
+                        // not cached yet: take the code from this answer if the host sent it, else ask for it once
+                        let code = match js_str(&v, "code") { Ok(s) if s.len() > 2 => s, _ => js_str(&self.host.account(&key, true).map_err(js_err)?, "code")? };
+                        let b = Bytecode::new_raw(parse_bytes(&code)?);
+                        CODE_CACHE.with(|c| { let mut c = c.borrow_mut(); if c.len() >= CODE_CACHE_MAX { c.clear(); } c.insert(code_hash, b.clone()); });
+                        b
+                    }
+                };
+                info.code = Some(bytecode);   // code comes with the account: revm never needs code_by_hash
+            }
             Some(info)
         };
         self.accounts.insert(address, info.clone());
         Ok(info)
     }
-    fn code_by_hash(&mut self, _code_hash: B256) -> Result<Bytecode, HostError> { Ok(Bytecode::default()) }   // never reached: basic() carries the code
+    fn code_by_hash(&mut self, code_hash: B256) -> Result<Bytecode, HostError> { Ok(CODE_CACHE.with(|c| c.borrow().get(&code_hash).cloned()).unwrap_or_default()) }
     fn storage(&mut self, address: Address, index: U256) -> Result<U256, HostError> {
         if let Some(v) = self.storage.get(&(address, index)) { return Ok(*v); }
         let v = self.host.storage(&format!("{address:?}"), &format!("{index:#066x}")).map_err(js_err)?;
@@ -124,6 +149,11 @@ pub struct AccountOut { address: String, deleted: bool, balance: String, nonce: 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunResult { success: bool, reason: String, gas_used: u64, gas_refunded: u64, output: String, created: Option<String>, logs: Vec<LogOut>, state: Vec<AccountOut>, sloads: Vec<(String, String)> }
+/// `estimate`'s answer: the gas limit to use, how many runs it took, and the first run's outcome (a revert at the cap
+/// means the transaction fails regardless of gas: `success` false, `reason` / `output` say why, like a receipt would).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EstimateResult { gas: u64, runs: u32, success: bool, reason: String, output: String, gas_used: u64 }
 
 fn spec_of(name: Option<&str>) -> SpecId {
     match name.map(|s| s.to_ascii_lowercase()).as_deref() { Some("prague") => SpecId::PRAGUE, Some("shanghai") => SpecId::SHANGHAI, Some("merge") | Some("paris") => SpecId::MERGE, Some("osaka") => SpecId::OSAKA, _ => SpecId::CANCUN }
@@ -143,7 +173,18 @@ pub fn run(host: &Host, request: &str) -> Result<String, JsValue> {
     run_inner(host, req).map_err(|e| JsValue::from_str(&e))
 }
 
-fn run_inner(host: &Host, req: RunRequest) -> Result<String, String> {
+/// Estimate the gas for a transaction (same request shape as `run`; `tx.gasLimit` is the cap, usually the block gas
+/// limit). reth's algorithm, all inside wasm: one run at the cap (a failure there is the answer: the tx reverts), the
+/// optimistic `(used + refunded + stipend) · 64/63` probe, then bisection between `used - 1` and the best known limit,
+/// starting at `min(3 · used, mid)`, stopping within 1.5 %. Returns a JSON EstimateResult. Throws `missing` like `run`.
+#[wasm_bindgen]
+pub fn estimate(host: &Host, request: &str) -> Result<String, JsValue> {
+    let req: RunRequest = serde_json::from_str(request).map_err(|e| JsValue::from_str(&format!("bad request: {e}")))?;
+    estimate_inner(host, req).map_err(|e| JsValue::from_str(&e))
+}
+
+/// the environments a request describes
+fn envs(req: &RunRequest) -> Result<(BlockEnv, TxEnv, CfgEnv), String> {
     let h = |e: HostError| e.to_string();
     let block = BlockEnv {
         number: parse_u256(&req.block.number).map_err(h)?,
@@ -178,18 +219,26 @@ fn run_inner(host: &Host, req: RunRequest) -> Result<String, String> {
     cfg.disable_eip3607 = req.cfg.skip_eip3607;   // simulations may originate from a contract address
     cfg.limit_contract_code_size = Some(usize::MAX);   // allowUnlimitedContractSize, like the JS engine
     cfg.limit_contract_initcode_size = Some(usize::MAX);
+    Ok((block, tx, cfg))
+}
 
+/// the errors of a transact call, as the host sees them
+fn evm_error(e: EVMError<HostError>) -> String {
+    match e {
+        EVMError::Database(HostError::Missing) => "missing".into(),
+        EVMError::Database(e) => format!("host: {e}"),
+        EVMError::Transaction(e) => format!("invalid: {e:?}"),
+        EVMError::Header(e) => format!("invalid header: {e:?}"),
+        e => format!("evm: {e:?}"),
+    }
+}
+
+fn run_inner(host: &Host, req: RunRequest) -> Result<String, String> {
+    let (block, tx, cfg) = envs(&req)?;
     let db = HostDb { host, accounts: HashMap::new(), storage: HashMap::new() };
     let ctx = Context::mainnet().with_db(db).with_block(block).with_cfg(cfg);
     let mut evm = ctx.build_mainnet_with_inspector(SloadTracer { on: req.cfg.trace_sloads, reads: Vec::new() });
-    let res = match evm.inspect_tx(tx) {
-        Ok(r) => r,
-        Err(EVMError::Database(HostError::Missing)) => return Err("missing".into()),
-        Err(EVMError::Database(e)) => return Err(format!("host: {e}")),
-        Err(EVMError::Transaction(e)) => return Err(format!("invalid: {e:?}")),
-        Err(EVMError::Header(e)) => return Err(format!("invalid header: {e:?}")),
-        Err(e) => return Err(format!("evm: {e:?}")),
-    };
+    let res = evm.inspect_tx(tx).map_err(evm_error)?;
     let sloads = evm.inspector.reads.iter().map(|(a, s)| (format!("{a:?}"), format!("{s:#066x}"))).collect();
 
     let (success, reason, gas, logs, output, created) = match res.result {
@@ -212,4 +261,46 @@ fn run_inner(host: &Host, req: RunRequest) -> Result<String, String> {
         state, sloads,
     };
     serde_json::to_string(&out).map_err(|e| e.to_string())
+}
+
+/// reth's estimation constants: the error ratio the bisection stops at, and the call stipend added to the optimistic probe
+const ESTIMATE_GAS_ERROR_RATIO: f64 = 0.015;
+const CALL_STIPEND_GAS: u64 = 2_300;
+
+fn estimate_inner(host: &Host, req: RunRequest) -> Result<String, String> {
+    let (block, tx, cfg) = envs(&req)?;
+    let db = HostDb { host, accounts: HashMap::new(), storage: HashMap::new() };
+    let ctx = Context::mainnet().with_db(db).with_block(block).with_cfg(cfg);
+    let mut evm = ctx.build_mainnet_with_inspector(SloadTracer::default());
+    let mut runs: u32 = 0;
+    // nothing is committed between runs, so every run starts from the same state and the read cache holds
+    let mut exec = |gas_limit: u64| -> Result<ExecutionResult, String> {
+        runs += 1;
+        let mut t = tx.clone(); t.gas_limit = gas_limit;
+        Ok(evm.inspect_tx(t).map_err(evm_error)?.result)
+    };
+    let cap = tx.gas_limit;
+    let first = exec(cap)?;
+    let (gas_used, refunded) = match &first {
+        ExecutionResult::Success { gas, .. } => (gas.tx_gas_used(), gas.final_refunded()),
+        ExecutionResult::Revert { gas, output, .. } => {
+            return serde_json::to_string(&EstimateResult { gas: 0, runs, success: false, reason: "revert".into(), output: format!("0x{}", hex::encode(output)), gas_used: gas.tx_gas_used() }).map_err(|e| e.to_string());
+        }
+        ExecutionResult::Halt { reason, gas, .. } => {
+            return serde_json::to_string(&EstimateResult { gas: 0, runs, success: false, reason: format!("{reason:?}"), output: "0x".into(), gas_used: gas.tx_gas_used() }).map_err(|e| e.to_string());
+        }
+    };
+    let mut highest = cap;
+    let mut lowest = gas_used.saturating_sub(1);
+    // the optimistic probe: what a call needs when every frame keeps its 1/64th
+    let optimistic = (gas_used + refunded + CALL_STIPEND_GAS) * 64 / 63;
+    if optimistic < highest { if exec(optimistic)?.is_success() { highest = optimistic; } else { lowest = optimistic; } }
+    // bisection, starting near 3× the gas used rather than in the middle of a 30M range (reth)
+    let mut mid = std::cmp::min(gas_used.saturating_mul(3), (highest + lowest) / 2);
+    while highest - lowest > 1 {
+        if ((highest - lowest) as f64) / (highest as f64) < ESTIMATE_GAS_ERROR_RATIO { break; }
+        if exec(mid)?.is_success() { highest = mid; } else { lowest = mid; }
+        mid = (highest + lowest) / 2;
+    }
+    serde_json::to_string(&EstimateResult { gas: highest, runs, success: true, reason: "ok".into(), output: "0x".into(), gas_used }).map_err(|e| e.to_string())
 }

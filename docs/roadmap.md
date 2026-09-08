@@ -61,8 +61,7 @@ where frontend developers lose the most time today.
 ## 5. Boot and estimation speed
 
 Measure first: add `timings` to `terrarium_status` (wasm instantiate, restore, `setup`, first block) and show them in the
-dev bar. Then, in likely order of payoff: cache the compiled wasm module (Cache API) so a reload skips compilation;
-replace the binary search in gas estimation with the execution's own gas use plus one confirming run, as newer geth does
+dev bar. Then, in likely order of payoff: the wasm compile is 1–3 ms in Chromium (measured), not worth a cache; gas estimation now runs reth's search inside the wasm in one call (0.7 ms for a Uniswap swap, was 16.7 ms in JavaScript)
 (far fewer simulated runs per transaction); make the Merkle state root lazy or optional per block for scenarios that do
 not verify headers; batch persistence writes during `setup`. Execution itself is not the bottleneck: the wasm is within
 2× of native Anvil on the reference scenario.

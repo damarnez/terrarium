@@ -236,3 +236,21 @@ fork replay. Verified: `npm run e2e`, `npm run test:uniswap`, `npm run test:fork
   (armed for 3 s); the Transactions button carries total and failed counts (`terrarium_status.txs`); the explorer gained a
   text filter, a taller mode, copy-on-click hashes and Esc; keyboard `Alt+Shift+T` (bar) / `Alt+Shift+X` (explorer);
   focus-visible outlines and aria-labels; group labels drop below 1280 px.
+
+## 15. Tenth pass (8 Sep 2026, night) — the engine's hot path, in Rust
+- **Estimation in wasm.** `estimate(host, req)` runs reth's algorithm inside the wasm (run at the cap; optimistic
+  (used + refunded + 2300) · 64/63; bisection starting at min(3 · used, mid), 1.5 % ratio) against a read cache that the
+  runs share; nothing is committed, so the Merkle trie is never touched by an estimate. JS makes ONE call (`revmCall`
+  re-issues it after fork-mode fetches). Measured on a Uniswap swap: estimateGas 16.7 → 0.7 ms (16 → 6 runs, all wasm);
+  viem's writeContract end to end 18.2 → 5.9 ms. The Anvil differential test passes (estimates are informational there).
+- **Bytecode cache.** `host.account(address, wantCode)`: wasm asks for the code once per code hash and caches the analysed
+  `Bytecode` (thread_local, 4096 entries). The JS host omits `code` when not wanted (a `'0x'` would mean "no code" —
+  that bug cost one build). Fake hosts that always send code keep working.
+- **Build.** `panic = "abort"` + `wasm-opt -O3` (binaryen via brew): 1498 → 1289 KB (504 → 463 KB gzipped). Measured
+  in Chromium: compiling the module takes 1–3 ms, a reload to a chain that answers 190 ms — the roadmap's wasm module cache
+  is dropped as not worth it.
+- **Incremental persistence.** Blocks in chunks of 64 under `<key>:b<i>`, a core (state, recent tx bodies, journal,
+  blockCount) under `<key>`; a save writes the dirty chunks (from the lowest changed block index: pushBlock, revert,
+  loadState) then the core; chunks past the head are removed after a revert; a legacy whole-dump value loads and is
+  converted on the next save. `sim.clearPersisted()` removes core + chunks; `terrarium_reset` uses it. `dumpState()`
+  is unchanged (fixtures, record). A save at 3000 blocks writes one chunk + the core instead of ~30 MB.

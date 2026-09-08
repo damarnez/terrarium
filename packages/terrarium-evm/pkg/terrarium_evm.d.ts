@@ -2,6 +2,14 @@
 /* eslint-disable */
 
 /**
+ * Estimate the gas for a transaction (same request shape as `run`; `tx.gasLimit` is the cap, usually the block gas
+ * limit). reth's algorithm, all inside wasm: one run at the cap (a failure there is the answer: the tx reverts), the
+ * optimistic `(used + refunded + stipend) · 64/63` probe, then bisection between `used - 1` and the best known limit,
+ * starting at `min(3 · used, mid)`, stopping within 1.5 %. Returns a JSON EstimateResult. Throws `missing` like `run`.
+ */
+export function estimate(host: any, request: string): string;
+
+/**
  * Execute one transaction. `request` is a JSON string (RunRequest); returns a JSON string (RunResult).
  * Throws a string starting with `missing` when the host could not provide some state (re-run after fetching), and a
  * string starting with `invalid:` for a transaction the node would refuse (bad nonce, insufficient funds...).
@@ -14,6 +22,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly estimate: (a: any, b: number, c: number) => [number, number, number, number];
     readonly run: (a: any, b: number, c: number) => [number, number, number, number];
     readonly version: () => [number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;

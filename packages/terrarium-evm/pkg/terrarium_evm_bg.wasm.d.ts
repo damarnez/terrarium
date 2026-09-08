@@ -1,6 +1,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const estimate: (a: any, b: number, c: number) => [number, number, number, number];
 export const run: (a: any, b: number, c: number) => [number, number, number, number];
 export const version: () => [number, number];
 export const __wbindgen_malloc: (a: number, b: number) => number;

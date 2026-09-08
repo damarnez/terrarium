@@ -137,7 +137,7 @@ export async function runScenario(input: ScenarioInput, opts: { storage?: Storag
     }) };
   });
   // reset wipes this scenario's chain (its key and its actors flag); other scenarios and the selection stay
-  sim.addMethod('terrarium_reset', async () => { await actors.toggle(false); sim.stop(); if (storage && key) { await storage.removeItem(key); await storage.removeItem(actorsKey); } return true; });
+  sim.addMethod('terrarium_reset', async () => { await actors.toggle(false); if (storage && key) { await sim.clearPersisted(); await storage.removeItem(actorsKey); } sim.stop(); return true; });
   // several scenarios: the list for the selector, and the switch (stored, then the page reloads and boots the chosen one)
   sim.addMethod('terrarium_scenarios', () => ({ active: scenarioName, scenarios: list.map((s, i) => ({ name: names[i], description: s.description ?? null, persist: s.persist === false ? null : (s.persist ?? (list.length > 1 ? slug(names[i]) : 'default')) })) }));
   sim.addMethod('terrarium_selectScenario', async (name: string) => {

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { keccak256, encodeFunctionData, decodeFunctionResult, decodeErrorResult, getContractAddress, numberToHex } from 'viem';
-import init, { run, version } from '@terrariumlabs/evm';
+import init, { run, estimate, version } from '@terrariumlabs/evm';
 import { PEPE } from './helpers.mjs';
 
 await init({ module_or_path: readFileSync(new URL('../../packages/terrarium-evm/pkg/terrarium_evm_bg.wasm', import.meta.url)) });
@@ -44,4 +44,29 @@ test('a host that cannot answer synchronously makes run() throw "missing"', () =
   const host = { ...w.host, storage: () => { throw { missing: true }; } };
   const pepe = w.exec({ from: user, to: null, data: PEPE.bytecode + (1n).toString(16).padStart(64, '0'), nonce: '0x0' }).created;
   assert.throws(() => run(host, JSON.stringify({ tx: { from: user, to: pepe, value: '0x0', data: encodeFunctionData({ abi: PEPE.abi, functionName: 'balanceOf', args: [user] }), gasLimit: '0xf4240', gasPrice: '0x0', nonce: '0x1' }, block, cfg: { ...cfg, skipBalance: true, noBaseFee: true } })), /missing/);
+});
+
+test('estimate(): reth-style search in one call; the host is asked for code once per code hash (cached across calls), with wantCode', () => {
+  const w = world();
+  const calls = [];
+  const host = { ...w.host, account: (a, wantCode) => { calls.push([a.toLowerCase(), wantCode]); const x = w.host.account(a); if (!x) return x; if (wantCode) return x; const { code, ...rest } = x; return rest; } };
+  const deploy = w.exec({ from: user, to: null, data: PEPE.bytecode + (10n ** 21n).toString(16).padStart(64, '0'), nonce: '0x0' });   // PEPE(supply)
+  const pepe = deploy.created;
+  const transfer = encodeFunctionData({ abi: PEPE.abi, functionName: 'transfer', args: [other, 1000n] });
+  const req = (gasLimit, from = user) => JSON.stringify({ tx: { from, to: pepe, value: '0x0', data: transfer, gasLimit: numberToHex(gasLimit), gasPrice: '0x0', priorityFee: '0x0', nonce: '0x1' }, block, cfg: { ...cfg, skipBalance: true, skipNonce: true, noBaseFee: true } });
+  calls.length = 0;
+  const e1 = JSON.parse(estimate(host, req(30_000_000n)));
+  assert.equal(e1.success, true); assert.ok(e1.runs >= 2 && e1.runs <= 8, `few runs (${e1.runs})`);
+  assert.ok(e1.gas >= e1.gasUsed && e1.gas <= Math.ceil(e1.gasUsed * 1.1), `the estimate (${e1.gas}) is just above the gas used (${e1.gasUsed})`);
+  // the transfer really fits in the estimate, and fails a hair below the gas used
+  assert.equal(JSON.parse(run(host, req(BigInt(e1.gas)))).success, true);
+  assert.equal(JSON.parse(run(host, req(BigInt(e1.gasUsed) - 1n))).success, false);
+  // the code protocol: PEPE's code asked for at most once with wantCode=true across all those runs (cached by hash after)
+  const codeAsks = calls.filter(([a, want]) => a === pepe.toLowerCase() && want === true).length;
+  assert.ok(codeAsks <= 1, `code fetched ${codeAsks} times`);
+  assert.ok(calls.some(([a, want]) => a === pepe.toLowerCase() && want === false), 'account meta is asked without the code');
+  // a revert at the cap is the answer: success false, the custom error's data comes back
+  const e2 = JSON.parse(estimate(host, req(30_000_000n, other)));   // `other` has no PEPE: InsufficientBalance
+  assert.equal(e2.success, false); assert.equal(e2.reason, 'revert'); assert.equal(e2.runs, 1);
+  assert.equal(decodeErrorResult({ abi: PEPE.abi, data: e2.output }).errorName, 'InsufficientBalance');
 });

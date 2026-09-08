@@ -57,7 +57,7 @@ npm run example:aave / example:euler   # the two protocol examples (ports 5174 /
 npm run test:examples        # offline replays of both examples
 node scripts/render-mermaid.mjs OUT_DIR README.md docs/*.md   # render every ```mermaid block to PNG (Playwright Chromium): check diagrams before committing docs
 npm publish -w @terrariumlabs/evm && npm publish -w @terrariumlabs/core && npm publish -w @terrariumlabs/react   # release, dependencies first (npm org terrariumlabs; bump all three versions together)
-npm run build:wasm           # rebuild packages/terrarium-evm/pkg (Rust: wasm32-unknown-unknown target + wasm-bindgen-cli 0.2.127); pkg is committed
+npm run build:wasm           # rebuild packages/terrarium-evm/pkg (cargo + wasm-bindgen + wasm-opt -O3: needs `brew install binaryen`) (Rust: wasm32-unknown-unknown target + wasm-bindgen-cli 0.2.127); pkg is committed
 ```
 
 ## Hard rules (keep these)
@@ -87,11 +87,11 @@ npm run build:wasm           # rebuild packages/terrarium-evm/pkg (Rust: wasm32-
 - Vite does not polyfill `process`; ethereumjs depends on `debug`, which reads `process.env.DEBUG` in the browser → every
   host `vite.config.ts` needs the `define` block (see the tutorial). The CLI build sets it itself.
 - `ctx.fresh` is never true in fork mode (the chain starts at fork block + 1): fixture scenarios seed with `ctx.firstBoot`.
-- `terrarium_reset` removes the active scenario's keys (`<persist>`, `<persist>:actors`) and keeps the others and the stored scenario selection (`terrarium:scenario`).
+- `terrarium_reset` removes the active scenario's keys (`<persist>`, its block chunks `<persist>:b<i>`, `<persist>:actors`) via `sim.clearPersisted()` and keeps the others and the stored scenario selection (`terrarium:scenario`). Persistence is incremental (block chunks of 64 + a core); `dumpState()` still returns the whole dump.
 - Relative imports inside `packages/terrarium/src` carry their `.ts` extension so Node can load the runtime in tests.
 - **Gas is estimated against the *pending* block** (`pendingBlock()`), like geth. Estimating against `latest` made
   real Uniswap swaps run out of gas: the pair's price accumulators cost more when block.timestamp has advanced.
-- Gas estimation is geth-style (full simulated tx, 64/63 probe, binary search); `gasEstimation: 'fast'` skips it.
+- Gas estimation is reth-style and runs inside the wasm (`estimate`: a run at the cap, the 64/63 probe, a bisection from ~3× used, within 1.5 %), one call from JS, no state touched; `gasEstimation: 'fast'` skips it. The host hands wasm code only on request: wasm caches analysed bytecode by code hash (`account(address, wantCode)`; omit `code` when not wanted, never send `'0x'` for a contract).
 - Filter cursors resolve block tags beyond `latest` numerically, and are clamped on snapshot revert.
 - `deadline` params come from the chain's clock: `sim.now()` in scenarios, the **pending** block's timestamp in the dapp
   (`getBlock({ blockTag: 'pending' })`). Never `Date.now()` (the dev bar shifts time) and never `latest` (an idle chain's
