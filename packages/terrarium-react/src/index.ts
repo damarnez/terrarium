@@ -11,7 +11,7 @@
 // where terrarium.worker.ts is three lines: import scenario from './terrarium.scenario'; import { runScenario } from '@terrariumlabs/core/worker'; runScenario(scenario);
 import { createContext, createElement, useContext, useEffect, useState, type ReactNode } from 'react';
 import { startTerrarium, stopTerrarium, type StartOptions } from '@terrariumlabs/core/inject';
-import { mountDevBar } from '@terrariumlabs/core/devbar';
+import { mountDevBar, unmountDevBar } from '@terrariumlabs/core/devbar';
 import type { WorkerProvider } from '@terrariumlabs/core/bridge';
 
 const Ctx = createContext<WorkerProvider | null>(null);
@@ -47,7 +47,7 @@ export function DevBar({ provider }: { provider: { request(a: { method: string; 
   useEffect(() => {
     if (typeof document === 'undefined' || !provider) return;
     mountDevBar(provider);
-    return () => { document.getElementById('terrarium-devbar')?.remove(); document.body.style.removeProperty('padding-bottom'); };
+    return () => unmountDevBar();
   }, [provider]);
   return null;
 }

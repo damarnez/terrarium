@@ -364,11 +364,12 @@ export async function createTerrarium(opts = {}) {
           r = await exec({ tx: entry.tx, block, flags: { blockGasUsed: cumulative } });
         } catch (e) { // invalid tx (nonce too low, insufficient funds...): a node would drop it silently and the dapp
           // would wait for a receipt forever. Record a failed receipt instead so waiters resolve and the reason is visible.
-          const t = txs.get(entry.hash); t.error = String(e.message);
+          const t = txs.get(entry.hash); t.error = String(e.message); t.dropped = true;
           receipts.push({ transactionHash: entry.hash, transactionIndex: hex(idx), from: entry.from, to: entry.rpc.to, cumulativeGasUsed: hex(cumulative), gasUsed: '0x0', effectiveGasPrice: hex(baseFee), contractAddress: null, logs: [], logsBloom: '0x' + '00'.repeat(256), status: '0x0', type: '0x2', droppedReason: t.error });
           hashes.push(entry.hash); sealTxs.push(entry.tx); sealReceipts.push({ status: 0, cumulativeBlockGasUsed: cumulative, bitvector: new Uint8Array(256), logs: [] }); continue;
         }
         cumulative += r.gasUsed;
+        if (!r.success) { const t = txs.get(entry.hash); t.error = r.error ?? 'execution reverted'; t.revertData = bytesToHex(r.returnValue); }
         if (globalThis.process?.env?.TERRARIUM_DEBUG && !r.success) console.log('[tx reverted]', entry.hash, r.error, bytesToHex(r.returnValue), 'gasUsed', r.gasUsed, 'gasLimit', entry.tx.gasLimit);
         const bloom = bloomOf(r.logs);
         const logs = r.logs.map(([addr, topics, data]) => ({ address: bytesToHex(addr), topics: topics.map(bytesToHex), data: bytesToHex(data), blockNumber: hex(header.number), transactionHash: entry.hash, transactionIndex: hex(idx), logIndex: hex(logIndex++), removed: false }));
@@ -445,6 +446,19 @@ export async function createTerrarium(opts = {}) {
       if (await ok(mid)) hi = mid; else lo = mid;
     }
     return hi;
+  }
+
+  /** Transactions newest first, as an explorer lists them: the RPC tx merged with its receipt, a `status` word, the
+   *  revert reason and data of a failed one, and the block timestamp. Pending (interval mining) come first. */
+  function listTransactions({ limit = 50, before } = {}) {
+    const all = [...txs.values()].reverse().map((t) => {
+      const mined = !!t.receipt, n = mined ? hexToBigInt(t.receipt.blockNumber) : null;
+      const b = mined ? blocks.find((b) => BigInt(b.number) === n) : null;
+      const status = !mined ? 'pending' : t.receipt.status === '0x1' ? 'success' : t.dropped ? 'dropped' : 'reverted';
+      return { ...t.rpc, status, receipt: t.receipt, timestamp: b ? hex(b.timestamp) : null, error: t.error ?? null, revertData: t.revertData ?? null };
+    });
+    const from = before ? all.findIndex((t) => t.hash === before) + 1 : 0;
+    return { total: all.length, transactions: all.slice(from, from + Math.max(0, limit)) };
   }
 
   // ---- RPC formatting ----------------------------------------------------------------------------
@@ -540,6 +554,7 @@ export async function createTerrarium(opts = {}) {
         case 'eth_sendRawTransaction': { const tx = createTxFromRLP(hexToBytes(params[0]), { common }); return submit(tx, tx.getSenderAddress().toString()); }
         case 'eth_getTransactionReceipt': { const t = txs.get(params[0]); if (!t?.receipt) return null; if (walletKnobs.receiptLagMs > 0 && Date.now() - (t.minedAt ?? 0) < walletKnobs.receiptLagMs) return null; return t.receipt; }
         case 'eth_getTransactionByHash': return txs.get(params[0])?.rpc ?? null;
+        case 'terrarium_transactions': return listTransactions(params[0] ?? {});
         case 'eth_getLogs': return getLogs(params[0] ?? {});
         case 'eth_newFilter': filters.set(hex(nextFilterId), { type: 'logs', f: params[0] ?? {}, cursor: latest().number + 1n }); return hex(nextFilterId++);
         case 'eth_newBlockFilter': filters.set(hex(nextFilterId), { type: 'blocks', cursor: latest().number + 1n }); return hex(nextFilterId++);
@@ -706,7 +721,7 @@ export async function createTerrarium(opts = {}) {
     const remote = sm.remote ? { accounts: Object.fromEntries([...sm.remote.accounts].map(([a, acct]) => [a, acct ? { nonce: hex(acct.nonce), balance: hex(acct.balance), codeHash: bytesToHex(acct.codeHash) } : null])), code: Object.fromEntries([...sm.remote.code].map(([a, c]) => [a, bytesToHex(c)])), storage: Object.fromEntries([...sm.remote.storage].map(([k, v]) => [k, bytesToHex(v)])) } : undefined;
     return { version: 1, chainId, savedAt: Date.now(), state: { accounts: accountsOut, code: codeOut, storage: storageOut }, remote,
       // tx bodies: only the most recent blocks' worth (like a pruned node), and without their logs (rebuilt from block logs on load)
-      chain: { blocks: blocks.map(serBlock), txs: Object.fromEntries([...txs].filter(([, t]) => !t.receipt || hexToBigInt(t.receipt.blockNumber) >= keepFrom).map(([h, t]) => [h, { rpc: t.rpc, receipt: t.receipt ? { ...t.receipt, logs: undefined } : null, error: t.error }])), timeOffset: hex(timeOffset), baseFee: hex(baseFee), mining, impersonated: [...impersonated], dealtSlots: Object.fromEntries(dealtSlots) },
+      chain: { blocks: blocks.map(serBlock), txs: Object.fromEntries([...txs].filter(([, t]) => !t.receipt || hexToBigInt(t.receipt.blockNumber) >= keepFrom).map(([h, t]) => [h, { rpc: t.rpc, receipt: t.receipt ? { ...t.receipt, logs: undefined } : null, error: t.error, revertData: t.revertData, dropped: t.dropped }])), timeOffset: hex(timeOffset), baseFee: hex(baseFee), mining, impersonated: [...impersonated], dealtSlots: Object.fromEntries(dealtSlots) },
       journal: { entries: journal, timestamps: blocks.slice(1).map((b) => hex(b.timestamp)) } };
   }
   async function seedState({ accounts: accs = {}, code = {}, storage = {} }) {
@@ -763,6 +778,8 @@ export async function createTerrarium(opts = {}) {
     dumpState: () => exclusive(dumpState), loadState: (d) => exclusive(() => loadState(d)), replayJournal: (j) => exclusive(() => replayJournal(j)),
     get journal() { return journal.slice(); }, flush: () => { clearTimeout(persistTimer); return persister ? exclusive(async () => persister.setItem(persistKey, JSON.stringify(await dumpState()))) : Promise.resolve(); },
     get blockNumber() { return latest().number; },
+    /** transactions newest first ({ total, transactions }): tx + receipt + status word + revert reason/data + block timestamp */
+    transactions: (o) => listTransactions(o),
     /** React to on-chain events with scripted actors (keepers, oracles, other users, bridges...). */
     onLog(filter, handler) { const l = { filter, handler }; logListeners.push(l); return () => logListeners.splice(logListeners.indexOf(l), 1); },
     /** Cheat: send a tx "from" any address without keys (impersonation), e.g. to simulate another user. */

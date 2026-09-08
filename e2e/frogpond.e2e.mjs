@@ -116,6 +116,24 @@ try {
   await page.waitForFunction(() => !document.querySelector('[data-testid=indexer-error]'), null, { timeout: 20000 });
   results.httpAnswered = (await rpc('terrarium_status')).http;
 
+  // the transaction explorer: every tx so far, decoded with the scenario's ABIs; a row expands to receipt + events
+  await page.getByTestId('txs').click();
+  await page.getByTestId('tx-row').first().waitFor();
+  results.explorerRows = await page.getByTestId('tx-row').count();
+  results.explorerFirstRow = (await page.getByTestId('tx-row').first().innerText()).replace(/\s+/g, ' ').trim();
+  const swapRow = page.locator('[data-testid=tx-row]', { hasText: 'swapExactTokensForETH' }).first();
+  await swapRow.click();
+  await page.getByTestId('tx-detail').waitFor();
+  results.explorerDetail = (await page.getByTestId('tx-detail').innerText()).replace(/\s+/g, ' ').slice(0, 200);
+  results.explorerEvents = await page.getByTestId('tx-events').locator('li').allInnerTexts().then((l) => l.map((s) => s.replace(/\s+/g, ' ').replace(/\(.*$/, '').trim()));
+  results.explorerReverted = await page.locator('[data-testid=tx-row][data-status=reverted]').count();
+  await page.getByTestId('txs').click();                                 // close the panel
+  // hide the bar: the leaf brings it back
+  await page.getByTestId('hide').click();
+  results.devbarHidden = !(await page.getByTestId('devbar').isVisible()) && (await page.getByTestId('show').isVisible());
+  await page.getByTestId('show').click();
+  results.devbarRestored = await page.getByTestId('devbar').isVisible();
+
   // snapshot, swap, revert: chain AND UI history must come back
   await page.getByTestId('snapshot').click();
   await page.waitForFunction(() => /Revert/.test(document.querySelector('[data-testid=snapshot]').innerText));
@@ -170,7 +188,8 @@ try {
     && results.priceInsideSnapshot !== results.priceAfterSwapBack && results.priceAfterRevert === results.priceAfterSwapBack && results.pointsAfterRevert === pointsBeforeSnapshot
     && /9\.09%/.test(results.positionAfterRemove)
     && results.indexedSwaps >= 2 && /swaps indexed/.test(results.indexerSummary) && /HTTP 503/.test(results.indexerDown) && results.httpAnswered.hits >= 3
-    && results.priceAfterReload === results.priceAfterSwapBack && results.blockAfterReload === results.blockBeforeReload;
+    && results.priceAfterReload === results.priceAfterSwapBack && results.blockAfterReload === results.blockBeforeReload
+    && results.explorerRows >= 4 && /swapExactTokensForETH/.test(results.explorerFirstRow) && results.explorerEvents.some((e) => /\bSwap$/.test(e)) && results.devbarHidden && results.devbarRestored;
   console.log(ok ? '\nPASS' : '\nFAIL');
   process.exitCode = ok ? 0 : 1;
 } catch (e) {

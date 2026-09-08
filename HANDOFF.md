@@ -195,3 +195,16 @@ fork replay. Verified: `npm run e2e`, `npm run test:uniswap`, `npm run test:fork
   plugin, `npx terrarium build`, all from a scratch project).
 - **Docs**: install lines everywhere a project is set up; `npx terrarium` must run where the package is installed (a bare
   `npx terrarium` fetches an unrelated package). Roadmap item 6 shrank to the `init` scaffold.
+
+## 13. Eighth pass (8 Sep 2026) — transaction explorer and a Hide button in the dev bar
+- **Explorer.** `sim.transactions({ limit, before })` / `terrarium_transactions` list every transaction newest first (pending
+  first) with receipt, a status word, revert reason + data (the engine now keeps `error`, `revertData`, `dropped` on a failed
+  tx, persisted with the tx bodies) and the block timestamp. The scenario runtime decodes calls, events and custom errors with
+  the new `abis` config and names addresses with `labels` (static or `(ctx) =>`); accounts default to `Account #i`. The dev bar
+  renders it as a panel above the bar (`txs` button; rows expand to receipt, decoded call, raw input, revert, events).
+- **Hide.** The bar collapses to a leaf at the bottom right; remembered in localStorage. `unmountDevBar()` cleans everything
+  (used by `stopTerrarium` and `<DevBar>`). Both features are in the shared plain-DOM bar, so the Vite plugin path and
+  `@terrariumlabs/react` get them alike.
+- Tests: `test/unit/explorer.test.mjs` (engine list, statuses, paging, persistence; runtime decoding + labels); the e2e opens
+  the explorer, checks a decoded swap row and its events, hides and restores the bar. Frogpond's scenario declares its ABIs
+  and labels (router, pair, WETH, factory, PEPE, You, Treasury, the frogs).

@@ -6,7 +6,7 @@
 //     actors: [{ every: 5000, run: (ctx) => ... }, { on: { address, topics }, run: (ctx, log) => ... }],
 //     status: (ctx) => ({ addresses: ctx.state }),
 //   });
-import type { Account, Address, Chain, Hex, PublicClient, TransactionReceipt, Transport, WalletClient } from 'viem';
+import type { Abi, Account, Address, Chain, Hex, PublicClient, TransactionReceipt, Transport, WalletClient } from 'viem';
 import type { HttpRoute } from './http.ts';
 export { reply } from './http.ts';
 export type { HttpRoute, HttpRequest, HttpReply, GraphqlQuery, GraphqlResolver } from './http.ts';
@@ -89,6 +89,12 @@ export interface ScenarioConfig {
    *  intercepted for matching URLs, the handler runs here in the Worker with `ctx`, everything else goes to the network.
    *  http: [{ match: 'https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v2', graphql: { swaps: (ctx, q) => … } }] */
   http?: HttpRoute[];
+  /** ABIs used to decode calls, events and revert reasons in `terrarium_transactions` (the dev bar's transaction explorer);
+   *  anything they do not cover is shown raw (selector, topics, data) */
+  abis?: Abi[];
+  /** names for addresses in the explorer (`{ [address]: 'Uniswap V2 Router' }`), or a function of ctx for addresses only
+   *  known after setup. The sim's accounts are labelled `Account #i` unless you name them */
+  labels?: Record<string, string> | ((ctx: ScenarioContext) => Record<string, string>);
 }
 
 export function defineScenario(config: ScenarioConfig): ScenarioConfig { return config; }

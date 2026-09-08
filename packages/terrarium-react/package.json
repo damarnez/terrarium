@@ -1,6 +1,6 @@
 {
   "name": "@terrariumlabs/react",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Mount the Terrarium (chain in a Worker, EIP-6963 wallet, dev bar) from a React tree, for projects that cannot use the Vite plugin.",
   "type": "module",
   "license": "MIT",
@@ -41,6 +41,6 @@
   ],
   "peerDependencies": {
     "react": ">=18",
-    "@terrariumlabs/core": "^0.3.0"
+    "@terrariumlabs/core": "^0.4.0"
   }
 }

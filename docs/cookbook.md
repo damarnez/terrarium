@@ -325,3 +325,25 @@ const provider = useTerrarium();                         // in a child: the wall
 For Next.js, Remix, CRA and Storybook. Guard it with your bundler's development constant so production drops it, and check
 the bundle once. Prefer the Vite plugin when you can: it keeps the simulator out of your source entirely.
 [integrations.md](integrations.md) has the Next.js and Storybook recipes and the script-tag path for everything else.
+
+## 24. The transaction explorer
+
+The dev bar's **Transactions** button opens a panel listing every transaction on the chain, newest first, like a block
+explorer: status, block, time, hash, method, from, to, value, gas, events. A row expands to the receipt, the decoded call and
+its arguments, the raw input, the revert reason and every event. Give the scenario the ABIs and the names, and it decodes:
+
+```ts
+export default defineScenario({
+  abis: [routerAbi, pairAbi, PEPE.abi],                          // calls, events and custom errors decode with these
+  labels: (ctx) => ({ [ROUTER]: 'Uniswap V2 Router', [TOKEN]: 'PEPE', [ctx.state.pair]: 'PEPE/WETH pair', [ctx.accounts[0]]: 'You' }),
+});
+```
+
+The same data from a test or the console, no ABIs needed for the raw form:
+
+```ts
+const { total, transactions } = await sim.provider.request({ method: 'terrarium_transactions', params: [{ limit: 20 }] });
+transactions[0];   // { hash, from, to, value, input, status: 'reverted', receipt, timestamp, error, revertData, method: { name, args }, revert: { name, args }, logs: [{ ..., decoded: { name, args } }] }
+```
+
+**Hide** collapses the bar to a leaf at the bottom right (remembered across reloads); the chain keeps running.

@@ -10,7 +10,7 @@ If you pick one up, open with a note in HANDOFF.md so the next person knows.
 |---|---|---|---|
 | 1 | [Live forking that feels finished](#1-live-forking-that-feels-finished) | forking a real chain through an RPC works but needs a block number, refetches on every reload and is recorded from Node only | M |
 | 2 | [`npx terrarium serve`](#2-npx-terrarium-serve) | real wallets (MetaMask, Rabby) and CLI tools cannot connect to the chain | M |
-| 3 | [Tracing in the dev bar](#3-tracing-in-the-dev-bar) | "my transaction reverted" has no call tree, no frame, no gas per call | L |
+| 3 | [Tracing in the dev bar](#3-tracing-in-the-dev-bar) | the explorer shows receipt, decoded call, events and revert reason; "my transaction reverted" still has no call tree, no frame, no gas per call | L |
 | 4 | [Prague hardfork and the modern wallet surface](#4-prague-hardfork-and-the-modern-wallet-surface) | Cancun rules while mainnet is on Prague; no EIP-7702, no EIP-5792 batched calls; constant base fee | M |
 | 5 | [Boot and estimation speed](#5-boot-and-estimation-speed) | page load is dominated by wasm instantiation, restore and setup; estimation runs the tx many times | M |
 | 6 | [`npx terrarium init`](#6-npx-terrarium-init-and-an-npm-release) | starting a new project is a manual copy from this repo (the npm release itself is done: `@terrariumlabs/core`, `@terrariumlabs/evm`, `@terrariumlabs/react`) | S |
@@ -42,9 +42,10 @@ answer to "closer to the real thing": the real wallet is in the loop.
 
 ## 3. Tracing in the dev bar
 
-revm has inspectors. Implement `debug_traceTransaction` and `debug_traceCall` (call tracer shape, as geth), then a
-per-transaction panel in the dev bar: the call tree, the frame that reverted with its decoded reason, events and gas per
-call, storage writes. The engine's `stats` already counts runs and rounds; this is the same data one level deeper. It is
+The dev bar's transaction explorer (0.4) already lists every transaction with its receipt, the decoded call, the events and
+the decoded revert reason (`terrarium_transactions`, decoded with the scenario's `abis`). What is missing is depth: revm has
+inspectors. Implement `debug_traceTransaction` and `debug_traceCall` (call tracer shape, as geth), then extend the explorer's
+row detail with the call tree, the frame that reverted, gas per call, storage writes. The engine's `stats` already counts runs and rounds; this is the same data one level deeper. It is
 where frontend developers lose the most time today.
 
 ## 4. Prague hardfork and the modern wallet surface

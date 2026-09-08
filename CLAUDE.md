@@ -16,7 +16,7 @@ Read HANDOFF.md first for the full story. This file is the short operating manua
   + types), `worker-runtime.ts` (`runScenario`: boots the engine in a **Worker**, runs setup, wires actors, exposes
   `terrarium_actors/status/reset/httpRoutes/http`), `http.ts` (scenario `http` routes: page-side `fetch` interceptor,
   GraphQL parser, Worker-side dispatch; the dapp's subgraph / API calls answered from the chain), `bridge.ts` +
-  `inject.ts` (postMessage bridge, EIP-6963 "Terrarium Wallet", `window.terrarium`, installs the interceptor), `devbar.ts` (plain-DOM overlay), `vite-plugin.js` (+ `.d.ts`) (generates `.terrarium/{inject,worker}.ts`
+  `inject.ts` (postMessage bridge, EIP-6963 "Terrarium Wallet", `window.terrarium`, installs the interceptor), `devbar.ts` (plain-DOM overlay: controls, Hide, transaction explorer fed by `terrarium_transactions`, decoded with the scenario's `abis`/`labels`), `vite-plugin.js` (+ `.d.ts`) (generates `.terrarium/{inject,worker}.ts`
   and injects one script), `bin/terrarium.mjs` (CLI: `build` standalone bundle, `fetch-code` bytecode fixtures at
   `--block`/`--chain`, `record` = fork a chain at a block + run a warm-up script + dump an offline fixture, self-verified),
   `fixtures/uniswap-v2-mainnet.json`.

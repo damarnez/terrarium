@@ -20,12 +20,26 @@ const pairAbi = parseAbi(['function getReserves() view returns (uint112, uint112
 const SUBGRAPH = import.meta.env.VITE_SUBGRAPH_URL ?? 'https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v2';
 const swapEvent = parseAbi(['event Swap(address indexed sender, uint256 amount0In, uint256 amount1In, uint256 amount0Out, uint256 amount1Out, address indexed to)']);
 const SWAP_TOPIC = keccak256(toHex('Swap(address,uint256,uint256,uint256,uint256,address)'));
+// what the transaction explorer in the dev bar decodes: the pair's and WETH's events, plus the router calls and PEPE above
+const explorerAbi = parseAbi([
+  'event Transfer(address indexed from, address indexed to, uint256 value)',
+  'event Approval(address indexed owner, address indexed spender, uint256 value)',
+  'event Sync(uint112 reserve0, uint112 reserve1)',
+  'event Mint(address indexed sender, uint256 amount0, uint256 amount1)',
+  'event Burn(address indexed sender, uint256 amount0, uint256 amount1, address indexed to)',
+  'event Deposit(address indexed dst, uint256 wad)',
+  'event Withdrawal(address indexed src, uint256 wad)',
+  'function removeLiquidityETH(address token, uint256 liquidity, uint256 amountTokenMin, uint256 amountETHMin, address to, uint256 deadline) returns (uint256, uint256)',
+  'function approve(address spender, uint256 value) returns (bool)',
+]);
 
 export default defineScenario({
   chainId: Number(import.meta.env.VITE_CHAIN_ID ?? 31337),
   seed: 1337,
   persist: 'frogpond',
   actorsLabel: 'Pond life',
+  abis: [routerAbi, pairAbi, swapEvent, explorerAbi, PEPE.abi],
+  labels: (ctx) => ({ [ROUTER]: 'Uniswap V2 Router', [TOKEN]: 'PEPE', [ctx.state.weth]: 'WETH', [ctx.state.factory]: 'Uniswap V2 Factory', [ctx.state.pair]: 'PEPE/WETH pair', [ctx.accounts[0]]: 'You', [ctx.accounts[9]]: 'Treasury', [ctx.accounts[6]]: 'Frog 1', [ctx.accounts[7]]: 'Frog 2', [ctx.accounts[8]]: 'Frog 3 (fader)' }),
 
   async setup(ctx) {
     const { pub, accounts, state } = ctx;

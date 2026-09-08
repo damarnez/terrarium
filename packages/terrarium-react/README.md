@@ -25,7 +25,7 @@ export function Root() {
 |---|---|
 | `<Terrarium worker={() => Worker} devBar?>` | starts the Terrarium on mount (browser only), stops it on unmount; reuses one already on the page; children get `useTerrarium()` |
 | `useTerrarium()` | the wallet provider (null until ready), for your own dev tools: `useTerrarium()?.request({ method: 'terrarium_status' })` |
-| `<DevBar provider>` | only the dev bar, over any provider that answers the `terrarium_*` methods |
+| `<DevBar provider>` | only the dev bar (controls, Hide button, transaction explorer), over any provider that answers the `terrarium_*` methods |
 
 > [!IMPORTANT]
 > Prefer the Vite plugin when you can: with it your source never mentions the simulator. With this package it does, and

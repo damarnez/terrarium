@@ -47,6 +47,7 @@
 | `setState(address, storageLayout, { variable: value, mapping: { key: value } })` | write a contract's storage by variable name (values: bigint, number, boolean, hex string; nested objects for mappings). Returns `{ path, slot }[]` |
 | `slotFromLayout(layout, path)` | compute a slot from a solc storageLayout: scalars, mappings (address / uint / bytes32 / string keys), dynamic arrays. Throws for packed variables |
 | `sendAs(from, tx)` | send a tx from any address (impersonation; Anvil-style fake signature with `r = sender`) |
+| `transactions({ limit = 50, before? })` | `{ total, transactions }` newest first (pending first): each is the RPC tx merged with `receipt`, a `status` word (`pending` \| `success` \| `reverted` \| `dropped`), `error` and `revertData` of a failed one, and the block `timestamp`. `before: hash` pages. What the dev bar's explorer reads (through `terrarium_transactions`) |
 | `onLog(filter, handler)` | run `handler(log, { blockNumber })` after a block with a matching log (actors); returns an unsubscribe function |
 | `addMethod(name, fn)` | register an RPC method at runtime. Extension methods run **outside** the state lock so they can call other RPC methods |
 | `dumpState()`, `loadState(dump)`, `replayJournal(journal)`, `journal`, `flush()` | persistence; `journal` lists the state-changing RPC calls since boot (a replay is not re-recorded) |
@@ -70,7 +71,7 @@ funds) gets a failed receipt with `droppedReason` instead, so `waitForTransactio
   `eth_getBlockByNumber('pending')` returns the next block (real number and timestamp, `hash: null`, the mempool as `transactions`) like geth/Anvil. `eth_subscribe` answers `0x1` and new heads arrive as EIP-1193 `message` events (`{ type: 'eth_subscription', data: { subscription, result } }`); viem's `custom` transport polls anyway.
 - **Wallet**: `eth_accounts eth_requestAccounts eth_sendTransaction personal_sign eth_signTypedData_v4 wallet_switchEthereumChain wallet_addEthereumChain wallet_getPermissions wallet_requestPermissions wallet_revokePermissions`. Wallet methods pass through the latency / rejection gate (before the state lock, so reads keep flowing).
 - **Cheatcodes** (Anvil and Hardhat names, so viem's `createTestClient({ mode: 'anvil' })` works unchanged): `evm_mine anvil_mine hardhat_mine evm_setNextBlockTimestamp evm_increaseTime (negative allowed) evm_setAutomine evm_setIntervalMining anvil_setBalance anvil_setCode anvil_setNonce anvil_setStorageAt anvil_impersonateAccount anvil_stopImpersonatingAccount anvil_setNextBlockBaseFeePerGas evm_snapshot evm_revert`; every `anvil_*` also as `hardhat_*`, and `anvil_setNextBlockTimestamp / anvil_increaseTime / anvil_setAutomine / anvil_setIntervalMining` as aliases of the `evm_*` ones.
-- **Terrarium**: `sim_deal(token, holder, amountHex, opts)`, `sim_setState(address, layout, values)`, `sim_dumpState()`, `terrarium_setWallet({ rejectNext?, latencyMs?, receiptLagMs? })` → the knobs, `terrarium_getWallet()`.
+- **Terrarium**: `terrarium_transactions({ limit?, before? })` → `sim.transactions(...)` (under `runScenario`, decoded: see below), `sim_deal(token, holder, amountHex, opts)`, `sim_setState(address, layout, values)`, `sim_dumpState()`, `terrarium_setWallet({ rejectNext?, latencyMs?, receiptLagMs? })` → the knobs, `terrarium_getWallet()`.
 - **Scenario runtime** (when run through `runScenario`): `terrarium_actors(on?)` → enabled, `terrarium_status()` → `{ chainId, engine, block, accounts, actors, actorsLabel, hasActors, wallet, controls, restoredFromPersistence, localBlocks, fork: null | { blockNumber, offline, misses }, http: { routes, hits }, ...status(ctx) }`, `terrarium_reset()` (stops actors and timers, **clears the whole IndexedDB store** of this origin, returns true; the dev bar reloads), `terrarium_httpRoutes()` → the scenario's `http` routes in wire form, `terrarium_http(index, { url, method, headers?, body? })` → `{ status, headers, body }` (runs one route; what the patched `fetch` calls), plus anything in `methods`.
 - Errors carry EIP-1193 / JSON-RPC codes and extend viem's `BaseError`: `3` execution reverted (with revert `data`), `4001` user rejected, `4100` unauthorized (unknown signer, or a wallet method on `node`), `4902` unknown chain, `-32000` node errors (`no key for 0x…`, `filter not found`), `-32601` unknown method. viem decodes them unchanged and does not retry them.
 
@@ -88,6 +89,8 @@ funds) gets a failed receipt with `droppedReason` instead, so `waitForTransactio
 | `status(ctx)` | extra fields merged into `terrarium_status` |
 | `methods` | `{ terrarium_x: (ctx, ...args) => result }` |
 | `http` | `HttpRoute[]`: the dapp's HTTP calls to answer from the chain (see [HTTP routes](#http-routes-terrariumhttp)) |
+| `abis` | `Abi[]` used by `terrarium_transactions` (the dev bar's transaction explorer) to decode calls (`method: { name, args }`), events (`logs[i].decoded: { name, args }`) and custom errors (`revert: { name, args }`); what they do not cover is shown raw (`method: { selector }`, topics + data, `revertData`). `Error(string)` and `Panic` decode without an ABI |
+| `labels` | `{ [address]: name }` or `(ctx) => {...}` for addresses known after setup: names shown in the explorer instead of addresses. The sim's accounts are `Account #i` unless named |
 
 `ctx`: `sim`, `chainId`, `accounts`, `rpc(method, params)`, `pub` (viem public client), `wallet(account)` (viem wallet
 client signing with the sim's keys), `wait(hashOrPromise)`, `deadline(seconds = 3600)` (chain clock), `random()`,
@@ -181,7 +184,13 @@ mounts the dev bar (`devBar: false` skips it); it returns the provider. Starting
 and the console, never for the dapp. `window.fetch` is replaced by the HTTP interceptor when the scenario declares
 `http` routes (unmatched requests pass through to the original). The dev bar mounts as `<footer id="terrarium-devbar" data-testid="devbar">` with
 buttons carrying `data-testid`s: `block` (the head counter), `mine plus-hour mining snapshot actors reject-next
-wallet-latency receipt-lag reset`, and `control-<i>` for the scenario's `controls` in order.
+wallet-latency receipt-lag txs reset hide`, and `control-<i>` for the scenario's `controls` in order. `txs` toggles the
+**transaction explorer** (`<section id="terrarium-explorer" data-testid="explorer">`, a panel above the bar): every transaction
+newest first with status, block, time, hash, decoded method, labelled from/to, value, gas and event count (`tx-row`, with
+`data-hash` and `data-status`); a click expands it (`tx-detail`: receipt fields, decoded call and arguments, raw input, revert
+reason and data, `tx-events` with each event decoded or as topics + data). `hide` hides the bar; a leaf button at the bottom
+right (`show`, `#terrarium-devbar-show`) brings it back, and the choice is remembered in `localStorage` (`terrarium:devbar-hidden`).
+`unmountDevBar()` removes bar, panel and leaf.
 
 ## `@terrariumlabs/react`
 A separate package (`packages/terrarium-react`, peer dependencies `react >= 18` and `terrarium`) for React projects that
@@ -191,7 +200,7 @@ cannot use the Vite plugin. Guide with the Next.js and Storybook recipes: [integ
 |---|---|
 | `<Terrarium worker={() => Worker} devBar? children?>` | on mount (browser only; a no-op in SSR) creates the Worker, calls `startTerrarium`, on unmount `stopTerrarium`; reuses a Terrarium already on the page; children get the provider through context |
 | `useTerrarium()` | the `WorkerProvider` (null until ready) |
-| `<DevBar provider>` | only the dev bar, mounted while the component is mounted |
+| `<DevBar provider>` | only the dev bar (with its Hide button and transaction explorer), mounted while the component is mounted |
 
 Your source references the simulator with this package; guard the element with a build-time constant
 (`import.meta.env.DEV`, `process.env.NODE_ENV !== 'production'`) and check the production bundle once.

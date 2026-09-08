@@ -1,6 +1,6 @@
 // worker-runtime.ts — runs a scenario inside the Worker: boot the chain, run setup(), wire the actors, expose the
 // generic terrarium_* controls, and serve the provider to the page over postMessage.
-import { createPublicClient, createWalletClient, custom, defineChain, toHex, type Address, type Hex } from 'viem';
+import { createPublicClient, createWalletClient, custom, defineChain, decodeErrorResult, decodeEventLog, decodeFunctionData, toHex, type Abi, type Address, type Hex } from 'viem';
 // @ts-ignore — the engine is plain ESM JavaScript
 import { createTerrarium, indexedDBStorage } from './engine.js';
 import { serveProvider } from './bridge.ts';
@@ -61,6 +61,28 @@ export async function runScenario(config: ScenarioConfig) {
   // ---- generic controls, reachable through the provider like any RPC method -----------------------------------
   sim.addMethod('terrarium_actors', async (on?: boolean) => { await actors.toggle(on ?? !actors.enabled); return actors.enabled; });
   sim.addMethod('terrarium_status', async () => ({ chainId, engine: sim.engine, block: toHex(sim.blockNumber), accounts: ctx.accounts, actors: actors.enabled, actorsLabel: config.actorsLabel ?? 'Actors', hasActors: (config.actors?.length ?? 0) > 0, wallet: { ...sim.wallet }, controls: config.controls ?? [], restoredFromPersistence: sim.restoredFromPersistence, localBlocks: Number(sim.blockNumber) - (config.fork ? config.fork.blockNumber + 1 : 0), http: { routes: httpRoutes.length, hits: httpHits }, fork: config.fork ? { blockNumber: config.fork.blockNumber, offline: !!config.fork.offline, misses: sim.offlineMisses.length } : null, ...(await config.status?.(ctx)) }));
+  // ---- the transaction explorer: the engine's list, decoded with the scenario's ABIs and labelled -------------------
+  const abi = (config.abis ?? []).flat() as Abi;
+  const labelsOf = () => {
+    const out: Record<string, string> = {};
+    ctx.accounts.forEach((a, i) => { out[a.toLowerCase()] = `Account #${i}`; });
+    const own = typeof config.labels === 'function' ? config.labels(ctx) : config.labels ?? {};
+    for (const [a, name] of Object.entries(own)) if (a) out[a.toLowerCase()] = name;
+    return out;
+  };
+  const plain = (v: any): any => typeof v === 'bigint' ? v.toString() : Array.isArray(v) ? v.map(plain) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, plain(x)])) : v;
+  const attempt = <T,>(fn: () => T): T | null => { try { return fn(); } catch { return null; } };
+  sim.addMethod('terrarium_transactions', (opts?: { limit?: number; before?: string }) => {
+    const { total, transactions } = sim.transactions(opts ?? {});
+    const labels = labelsOf();
+    return { total, labels, transactions: transactions.map((t: any) => {
+      const call = t.to && t.input && t.input.length >= 10 && abi.length ? attempt(() => decodeFunctionData({ abi, data: t.input })) : null;
+      const method = !t.to ? { name: 'create', args: [] } : call ? { name: call.functionName, args: plain(call.args ?? []) } : t.input && t.input.length >= 10 ? { name: null, selector: t.input.slice(0, 10) } : null;
+      const revert = t.status === 'reverted' && t.revertData && t.revertData !== '0x' ? attempt(() => { const d = decodeErrorResult({ abi, data: t.revertData }); return { name: d.errorName, args: plain(d.args ?? []) }; }) : null;
+      const logs = (t.receipt?.logs ?? []).map((l: any) => { const d = abi.length ? attempt(() => decodeEventLog({ abi, data: l.data, topics: l.topics })) : null; return { ...l, decoded: d ? { name: d.eventName, args: plain(d.args ?? {}) } : null }; });
+      return { ...t, method, revert, logs };
+    }) };
+  });
   sim.addMethod('terrarium_reset', async () => { await actors.toggle(false); sim.stop(); await storage?.clear(); return true; });
   for (const [name, fn] of Object.entries(config.methods ?? {})) sim.addMethod(name, (...args: any[]) => fn(ctx, ...args));
 
