@@ -220,7 +220,7 @@ fork replay. Verified: `npm run e2e`, `npm run test:uniswap`, `npm run test:fork
   fills them from `--broadcast run-latest.json` (Foundry's contract names) and `--artifacts out/` (their ABIs), or from
   `name=0xaddress` positionals. Account 0 is `You (#0)` by default. The explorer has an all / mine / failed filter.
 
-## 14. Ninth pass (8 Sep 2026) — scenarios as a list, a grouped dev bar
+## 14. Ninth pass (8 Sep 2026) — scenarios as a list, a grouped dev bar (published as 0.5.0; 0.4.0 on npm is the first explorer cut)
 - **Lists.** `runScenario` takes one scenario or an array (`defineScenarios([...])`); `name` / `description` on ScenarioConfig.
   The first boots by default; `terrarium_scenarios` lists them; `terrarium_selectScenario(name)` stores the choice under
   `terrarium:scenario`, stops the chain and posts `reload`; the reload boots the chosen one. Each listed scenario persists under
