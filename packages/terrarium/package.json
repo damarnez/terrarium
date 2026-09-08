@@ -33,7 +33,7 @@
     "access": "public"
   },
   "bin": {
-    "terrarium": "./bin/terrarium.mjs"
+    "terrarium": "bin/terrarium.mjs"
   },
   "exports": {
     ".": "./src/engine.js",
