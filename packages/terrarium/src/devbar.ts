@@ -158,7 +158,7 @@ export function mountDevBar(provider: Provider, opts: DevBarOptions = {}) {
   // ---- the transaction explorer -----------------------------------------------------------------------------------------
   const panel = el(`<section id="terrarium-explorer" data-testid="explorer" role="region" aria-label="Transactions" hidden></section>`);
   const open = new Set<string>();   // expanded rows, by hash, kept across refreshes
-  let lastRender = '', filter: 'all' | 'mine' | 'failed' = 'all', search = '', me: string | null = null;   // `me`: accounts[0] from terrarium_status
+  let lastRender = '', lastTxKey = '', filter: 'all' | 'mine' | 'failed' = 'all', search = '', me: string | null = null;   // `me`: accounts[0] from terrarium_status; `lastTxKey`: the counts the open explorer last saw
   const bTxs = btn('Transactions', 'txs', 'Every transaction on this chain, like a block explorer: receipt, decoded call, events, revert reason (Alt+Shift+X)', () => togglePanel());
   const togglePanel = async (show: boolean = !!panel.hidden) => { panel.hidden = !show; bTxs.classList.toggle('on', show); lastRender = ''; if (show) { await refreshTxs(); panel.querySelector<HTMLInputElement>('[data-testid=tx-search]')?.focus(); } place(); };
   const place = () => { panel.style.bottom = `${bar.offsetHeight}px`; toasts.style.bottom = `${bar.offsetHeight + (panel.hidden ? 0 : panel.offsetHeight) + 12}px`; };   // toasts sit above whatever is open
@@ -283,6 +283,7 @@ export function mountDevBar(provider: Provider, opts: DevBarOptions = {}) {
     if (s.restoredFromPersistence) notes.push(`${s.localBlocks} block${s.localBlocks === 1 ? '' : 's'} restored`);
     status.querySelector('[data-f=engine]')!.innerHTML = notes.map((n) => `<span>${n}</span>`).join('');
     status.title = `revm/wasm · the chain persists in IndexedDB${s.restoredFromPersistence ? ' (Reset to start clean)' : ''}`;
+    const txKey = JSON.stringify(s.txs ?? s.block);
     if (s.txs) { const bad = s.txs.failed ? `<span class="badge bad" title="${s.txs.failed} failed">${s.txs.failed} ✗</span>` : ''; const pend = s.txs.pending ? `<span class="badge" title="${s.txs.pending} pending">${s.txs.pending} ⏳</span>` : ''; bTxs.innerHTML = `Transactions<span class="badge">${s.txs.total}</span>${pend}${bad}`; }
     const ck = JSON.stringify(s.controls ?? []);
     if (ck !== controlsKey) { controlsKey = ck; controls.replaceChildren(...(s.controls ?? []).map((c: any, i: number) => btn(c.label, `control-${i}`, c.title ?? c.method, async () => { const r = await rpc(c.method, c.params ?? []); toast(`${c.label}${r !== undefined && r !== null && typeof r !== 'object' ? ` → ${r}` : ''}`); }))); }
@@ -292,7 +293,7 @@ export function mountDevBar(provider: Provider, opts: DevBarOptions = {}) {
     bLatency.textContent = s.wallet.latencyMs ? `Wallet: ${s.wallet.latencyMs / 1000}s delay` : 'Wallet: instant'; bLatency.classList.toggle('on', !!s.wallet.latencyMs);
     bLag.textContent = s.wallet.receiptLagMs ? `Receipts: ${s.wallet.receiptLagMs / 1000}s late` : 'Receipts: instant'; bLag.classList.toggle('on', !!s.wallet.receiptLagMs);
     if (!bar.hidden) place();
-    if (!panel.hidden) await refreshTxs();
+    if (!panel.hidden && txKey !== lastTxKey) { lastTxKey = txKey; await refreshTxs(); }   // refetch the list only when the chain's counts moved; clicks refetch on their own
   };
   refresh(); refreshScenarios();
   let ticks = 0;

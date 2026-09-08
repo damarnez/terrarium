@@ -450,15 +450,27 @@ export async function createTerrarium(opts = {}) {
 
   /** Transactions newest first, as an explorer lists them: the RPC tx merged with its receipt, a `status` word, the
    *  revert reason and data of a failed one, and the block timestamp. Pending (interval mining) come first. */
+  // the counts are polled (the dev bar's status, twice a second): recomputed only when the chain changed
+  let txCounts = { key: '', failed: 0 };
+  function countTxs() {
+    const key = `${txs.size}:${pending.length}:${blocks.length}`;
+    if (txCounts.key !== key) { let failed = 0; for (const t of txs.values()) if (t.receipt && t.receipt.status !== '0x1') failed++; txCounts = { key, failed }; }
+    return { total: txs.size, pending: pending.length, failed: txCounts.failed };
+  }
+  function describeTx(t) {
+    const mined = !!t.receipt, n = mined ? hexToBigInt(t.receipt.blockNumber) : null;
+    const b = mined ? blocks[blocks.length - 1 - Number(latest().number - n)] ?? blocks.find((b) => BigInt(b.number) === n) : null;
+    const status = !mined ? 'pending' : t.receipt.status === '0x1' ? 'success' : t.dropped ? 'dropped' : 'reverted';
+    return { ...t.rpc, status, receipt: t.receipt, timestamp: b && BigInt(b.number) === n ? hex(b.timestamp) : null, error: t.error ?? null, revertData: t.revertData ?? null };
+  }
   function listTransactions({ limit = 50, before } = {}) {
-    const all = [...txs.values()].reverse().map((t) => {
-      const mined = !!t.receipt, n = mined ? hexToBigInt(t.receipt.blockNumber) : null;
-      const b = mined ? blocks.find((b) => BigInt(b.number) === n) : null;
-      const status = !mined ? 'pending' : t.receipt.status === '0x1' ? 'success' : t.dropped ? 'dropped' : 'reverted';
-      return { ...t.rpc, status, receipt: t.receipt, timestamp: b ? hex(b.timestamp) : null, error: t.error ?? null, revertData: t.revertData ?? null };
-    });
-    const from = before ? all.findIndex((t) => t.hash === before) + 1 : 0;
-    return { total: all.length, pending: all.filter((t) => t.status === 'pending').length, failed: all.filter((t) => t.status === 'reverted' || t.status === 'dropped').length, transactions: all.slice(from, from + Math.max(0, limit)) };
+    const all = [...txs.values()], out = [];   // only the requested page is built: newest first, after `before` if given
+    let started = !before;
+    for (let i = all.length - 1; i >= 0 && out.length < Math.max(0, limit); i--) {
+      if (!started) { if (all[i].rpc.hash === before) started = true; continue; }
+      out.push(describeTx(all[i]));
+    }
+    return { ...countTxs(), transactions: out };
   }
 
   // ---- RPC formatting ----------------------------------------------------------------------------
