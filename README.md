@@ -5,6 +5,7 @@ Real bytecode execution (revm compiled to WebAssembly), real blocks, receipts, l
 No node process, no browser extension, no faucet. Your dapp does not know it is there.</p>
 
 <p align="center">
+<a href="https://www.npmjs.com/package/@terrariumlabs/core"><img alt="npm: @terrariumlabs/core" src="https://img.shields.io/npm/v/@terrariumlabs/core?label=%40terrariumlabs%2Fcore&color=1f6f5c"></a>
 <img alt="engine: revm 43 in WebAssembly" src="https://img.shields.io/badge/engine-revm%2043%20%C2%B7%20wasm-1f6f5c">
 <img alt="fidelity: byte-identical to Anvil" src="https://img.shields.io/badge/fidelity-byte--identical%20to%20Anvil-1f6f5c">
 <img alt="node 22+" src="https://img.shields.io/badge/node-%E2%89%A5%2022-e8c547">
@@ -39,6 +40,30 @@ Inside this repo: **Frogpond**, an ordinary ETH/PEPE dapp on the **real Uniswap 
 Router02, Factory and WETH9), used as the working example, and two lending frontends on recorded mainnet forks.
 
 ## ⚡ Quickstart
+
+**In your dapp** (Vite; other setups in [docs/integrations.md](docs/integrations.md)):
+```bash
+npm install -D @terrariumlabs/core      # Node 22+. Pulls @terrariumlabs/evm, the wasm engine, prebuilt: no Rust needed
+```
+```ts
+// vite.config.ts
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { terrarium } from '@terrariumlabs/core/vite';
+export default defineConfig({
+  plugins: [react(), terrarium()],
+  define: { 'process.env.DEBUG': 'undefined', 'process.env.TERRARIUM_DEBUG': 'undefined' },   // ethereumjs reads process.env in the browser
+  build: { target: 'es2022' },
+  worker: { format: 'es' },
+});
+```
+Then write `terrarium.scenario.ts` (what the chain looks like when the page loads) and connect to "Terrarium Wallet" in your
+own UI. The [tutorial](docs/tutorial-new-protocol.md) takes you through it; the packages are
+[`@terrariumlabs/core`](https://www.npmjs.com/package/@terrariumlabs/core) (engine, scenario runtime, Vite plugin, CLI),
+[`@terrariumlabs/evm`](https://www.npmjs.com/package/@terrariumlabs/evm) (revm in wasm) and
+[`@terrariumlabs/react`](https://www.npmjs.com/package/@terrariumlabs/react) (Next.js, Storybook).
+
+**This repo** (Frogpond, the working example):
 ```bash
 npm install            # Node 22+. No Rust needed: the wasm engine ships prebuilt in packages/terrarium-evm/pkg
 npm run dev            # http://localhost:5173 → "Connect wallet" → "Terrarium Wallet"
@@ -96,15 +121,15 @@ the [cookbook](docs/cookbook.md) (every feature, one example) and the [API refer
 | 🕸️ [Off-chain data](docs/http-and-subgraphs.md) | subgraphs and APIs answered from the chain; indexer down / behind / slow |
 | 🍳 [Cookbook](docs/cookbook.md) | every feature, one paste-able example |
 | 📖 [API reference](docs/api.md) | every option, `sim` member, RPC method, scenario field, plugin option, CLI flag, dev-bar test id |
-| 🔌 [Integrations](docs/integrations.md) | Vite plugin, `@terrarium/react` for Next.js / Remix / CRA / Storybook, a plain script tag |
-| 📦 [terrarium](packages/terrarium/README.md) · [@terrarium/react](packages/terrarium-react/README.md) · [@terrarium/evm](packages/terrarium-evm/README.md) | the library, the React mount, the wasm engine |
+| 🔌 [Integrations](docs/integrations.md) | Vite plugin, `@terrariumlabs/react` for Next.js / Remix / CRA / Storybook, a plain script tag |
+| 📦 [terrarium](packages/terrarium/README.md) · [@terrariumlabs/react](packages/terrarium-react/README.md) · [@terrariumlabs/evm](packages/terrarium-evm/README.md) | the library, the React mount, the wasm engine |
 | 🧭 [Roadmap](docs/roadmap.md) | what is not built yet, in order, and what is deliberately not planned |
 | 🛠️ [CLAUDE.md](CLAUDE.md) · [HANDOFF.md](HANDOFF.md) · [design investigation](docs/design-investigation.md) | operating manual and hard rules; the story pass by pass; the original investigation (historical) |
 
 ## 🧭 Your own protocol in four steps
 See [docs/tutorial-new-protocol.md](docs/tutorial-new-protocol.md). It starts with what a project looks like folder by
 folder and where every byte the chain executes comes from (fetched code, a recorded fork, or Solidity you compiled), then:
-get the protocol in (`npx terrarium fetch-code` for bytecode, `npx terrarium record --chain 1 --block N` for the state of a
+install `@terrariumlabs/core`, get the protocol in (`npx terrarium fetch-code` for bytecode, `npx terrarium record --chain 1 --block N` for the state of a
 chain at a block), write `terrarium.scenario.ts`, add the Vite plugin, run it headless. Every option and RPC method:
 [docs/api.md](docs/api.md).
 
@@ -159,7 +184,7 @@ or compiled from your own Solidity). The Terrarium is injected from outside (the
 > `VITE_TOKEN_ADDRESS`, optional `VITE_RPC_URL`) and talks to whatever wallet announces itself. Build with
 > `VITE_TERRARIUM=off` and not one byte of the simulator is in the bundle (the e2e asserts this).
 >
-> **The Terrarium is injected from outside.** In dev, the Vite plugin (`@terrarium/core/vite`) adds one `<script>` to
+> **The Terrarium is injected from outside.** In dev, the Vite plugin (`@terrariumlabs/core/vite`) adds one `<script>` to
 > `index.html`. In tests, Playwright injects `dist-terrarium/terrarium.js` (`npx terrarium build`) with
 > `addInitScript`, like a wallet extension. The dev bar is a plain-DOM overlay driven through `provider.request()`.
 >
@@ -193,7 +218,7 @@ that has a Node equivalent.
 
 ## 🧩 The engine directly (Node, Vitest, your own harness)
 ```ts
-import { createTerrarium, indexedDBStorage } from '@terrarium/core';
+import { createTerrarium, indexedDBStorage } from '@terrariumlabs/core';
 const sim = await createTerrarium({
   chainId: 8453,
   persist: { storage: indexedDBStorage('my-dapp'), key: 'scenario' },

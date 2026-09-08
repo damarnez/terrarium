@@ -1,7 +1,7 @@
-# @terrarium/core
+# @terrariumlabs/core
 
 ```sh
-npm install -D @terrarium/core          # pulls @terrarium/evm (the wasm engine); peer: viem 2, and vite for the plugin
+npm install -D @terrariumlabs/core          # pulls @terrariumlabs/evm (the wasm engine); peer: viem 2, and vite for the plugin
 ```
 
 A complete EVM chain inside the page, presented to your dapp as an EIP-6963 wallet. Real bytecode execution (revm
@@ -11,24 +11,24 @@ not know it is there.
 ## Entry points
 | import | what |
 |---|---|
-| `@terrarium/core` / `@terrarium/core/engine` | `createTerrarium(options) → sim`, `indexedDBStorage()`, `TEST_KEYS` — the engine, usable in Node, Vitest, a Worker |
-| `@terrarium/core/scenario` | `defineScenario(config)`, `reply()` + types — what runs in the Worker when the page loads, including `http` routes that answer the dapp's subgraph / API calls from the chain |
-| `@terrarium/core/http` | `parseGraphql`, `installHttpInterceptor`, `runRoute` — the HTTP interception layer, for custom hosts and tests |
-| `@terrarium/core/worker` | `runScenario(config)` — the Worker runtime (boot, setup, actors, `terrarium_*` RPCs, provider bridge) |
-| `@terrarium/core/inject` | `startTerrarium(worker, { devBar? })` / `stopTerrarium()` — page side: EIP-6963 announcement, `window.terrarium`, dev bar, the `fetch` interceptor |
-| `@terrarium/core/devbar` | `mountDevBar(provider)` — only the dev bar, over any provider answering the `terrarium_*` methods |
-| `@terrarium/core/bridge` | `serveProvider` / `createWorkerProvider` — the postMessage bridge, for custom hosts |
-| `@terrarium/core/vite` | `terrarium({ scenario? })` — Vite plugin: injects the whole thing into `index.html`; off with `VITE_TERRARIUM=off` |
-| `@terrarium/core/fixtures/uniswap-v2-mainnet.json` | mainnet runtime bytecode of Uniswap V2 Router02, Factory, WETH9, for `ctx.install()` |
+| `@terrariumlabs/core` / `@terrariumlabs/core/engine` | `createTerrarium(options) → sim`, `indexedDBStorage()`, `TEST_KEYS` — the engine, usable in Node, Vitest, a Worker |
+| `@terrariumlabs/core/scenario` | `defineScenario(config)`, `reply()` + types — what runs in the Worker when the page loads, including `http` routes that answer the dapp's subgraph / API calls from the chain |
+| `@terrariumlabs/core/http` | `parseGraphql`, `installHttpInterceptor`, `runRoute` — the HTTP interception layer, for custom hosts and tests |
+| `@terrariumlabs/core/worker` | `runScenario(config)` — the Worker runtime (boot, setup, actors, `terrarium_*` RPCs, provider bridge) |
+| `@terrariumlabs/core/inject` | `startTerrarium(worker, { devBar? })` / `stopTerrarium()` — page side: EIP-6963 announcement, `window.terrarium`, dev bar, the `fetch` interceptor |
+| `@terrariumlabs/core/devbar` | `mountDevBar(provider)` — only the dev bar, over any provider answering the `terrarium_*` methods |
+| `@terrariumlabs/core/bridge` | `serveProvider` / `createWorkerProvider` — the postMessage bridge, for custom hosts |
+| `@terrariumlabs/core/vite` | `terrarium({ scenario? })` — Vite plugin: injects the whole thing into `index.html`; off with `VITE_TERRARIUM=off` |
+| `@terrariumlabs/core/fixtures/uniswap-v2-mainnet.json` | mainnet runtime bytecode of Uniswap V2 Router02, Factory, WETH9, for `ctx.install()` |
 | `npx terrarium build` | one injectable script (chain + wallet + dev bar) for Playwright & co. |
-| [`@terrarium/react`](../terrarium-react/README.md) | `<Terrarium worker={…}>` for React apps that cannot use the Vite plugin (Next.js, Storybook); see [docs/integrations.md](../../docs/integrations.md) |
+| [`@terrariumlabs/react`](../terrarium-react/README.md) | `<Terrarium worker={…}>` for React apps that cannot use the Vite plugin (Next.js, Storybook); see [docs/integrations.md](../../docs/integrations.md) |
 | `npx terrarium fetch-code` / `npx terrarium record` | fixtures from any node: the runtime bytecode of named contracts, or the state of a chain at a block (`--chain`, `--block`, a warm-up `--script`) as an offline fork |
 
 ## Minimal use
 ```ts
 // terrarium.scenario.ts
-import { defineScenario } from '@terrarium/core/scenario';
-import uniswap from '@terrarium/core/fixtures/uniswap-v2-mainnet.json';
+import { defineScenario } from '@terrariumlabs/core/scenario';
+import uniswap from '@terrariumlabs/core/fixtures/uniswap-v2-mainnet.json';
 export default defineScenario({
   persist: 'my-dapp',
   async setup(ctx) { await ctx.install(uniswap); if (ctx.fresh) { /* deploy + seed with ctx.wallet(ctx.accounts[9]) */ } },
@@ -36,7 +36,7 @@ export default defineScenario({
 ```
 ```ts
 // vite.config.ts
-import { terrarium } from '@terrarium/core/vite';
+import { terrarium } from '@terrariumlabs/core/vite';
 export default defineConfig({
   plugins: [react(), terrarium()],
   define: { 'process.env.DEBUG': 'undefined', 'process.env.TERRARIUM_DEBUG': 'undefined' },   // ethereumjs → debug → process.env

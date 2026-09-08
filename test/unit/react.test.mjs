@@ -1,10 +1,10 @@
-// @terrarium/react: the component is inert outside a browser (SSR renders only its children, never creates a Worker), and
+// @terrariumlabs/react: the component is inert outside a browser (SSR renders only its children, never creates a Worker), and
 // the inject entry it relies on can start and stop cleanly (StrictMode mounts twice).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { renderToString } from 'react-dom/server';
-import { Terrarium, DevBar, useTerrarium } from '@terrarium/react';
+import { Terrarium, DevBar, useTerrarium } from '@terrariumlabs/react';
 
 test('SSR: renders children only, does not touch a Worker, useTerrarium is null', () => {
   let created = 0;
@@ -16,7 +16,7 @@ test('SSR: renders children only, does not touch a Worker, useTerrarium is null'
 });
 
 test('inject: startTerrarium announces once per instance, stopTerrarium undoes it (a second start replaces the first)', async () => {
-  const { startTerrarium, stopTerrarium } = await import('@terrarium/core/inject');
+  const { startTerrarium, stopTerrarium } = await import('@terrariumlabs/core/inject');
   const listeners = new Map(), dispatched = [];
   const body = { style: { paddingBottom: '', removeProperty(k) { this[k] = ''; } }, append() {}, appended: [] };
   globalThis.window = { addEventListener: (ev, fn) => listeners.set(fn, ev), removeEventListener: (ev, fn) => listeners.delete(fn), dispatchEvent: (e) => dispatched.push(e.type) };

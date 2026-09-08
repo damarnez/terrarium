@@ -4,7 +4,7 @@
 //   node examples/euler/test.mjs
 import { readFileSync } from 'node:fs';
 import { createPublicClient, createWalletClient, custom, defineChain, formatUnits, maxUint256, parseEther } from 'viem';
-import { createTerrarium } from '@terrarium/core/engine';
+import { createTerrarium } from '@terrariumlabs/core/engine';
 import { EULER, vaultAbi, evcAbi, erc20Abi } from './src/protocol.ts';
 
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/euler-mainnet.json', import.meta.url), 'utf8'));

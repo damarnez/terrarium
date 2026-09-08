@@ -121,7 +121,7 @@ test('simple state mode reports the placeholder stateRoot', async () => {
 
 test('web3_clientVersion names the package version; eth_subscribe pushes new heads as message events', async () => {
   const t = await boot();
-  assert.equal(await t.rpc('web3_clientVersion'), '@terrarium/core/0.3.0');
+  assert.equal(await t.rpc('web3_clientVersion'), '@terrariumlabs/core/0.3.0');
   assert.equal(await t.rpc('eth_subscribe', ['newHeads']), '0x1');
   const seen = []; t.sim.provider.on('message', (m) => seen.push(m));
   await t.rpc('evm_mine');

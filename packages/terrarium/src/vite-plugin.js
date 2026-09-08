@@ -18,7 +18,7 @@ export function terrarium(opts = {}) {
       const scenario = '/' + relative(config.root, resolve(config.root, opts.scenario ?? 'terrarium.scenario.ts')).split(sep).join('/');
       const dir = resolve(config.root, '.terrarium'); mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, 'worker.ts'), workerEntry(scenario));
-      writeFileSync(join(dir, 'inject.ts'), `import { startTerrarium } from '@terrarium/core/inject';\nstartTerrarium(new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' }));\n`);
+      writeFileSync(join(dir, 'inject.ts'), `import { startTerrarium } from '@terrariumlabs/core/inject';\nstartTerrarium(new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' }));\n`);
       config.logger.info(`[terrarium] injecting the simulated chain (scenario ${scenario})`);
     },
     transformIndexHtml: {
@@ -30,4 +30,4 @@ export function terrarium(opts = {}) {
 
 /** the Worker entry: the user's scenario + the runtime (also used by the CLI's standalone build)
  *  @param {string} scenarioImport */
-export const workerEntry = (scenarioImport) => `import scenario from '${scenarioImport}';\nimport { runScenario } from '@terrarium/core/worker';\nrunScenario(scenario);\n`;
+export const workerEntry = (scenarioImport) => `import scenario from '${scenarioImport}';\nimport { runScenario } from '@terrariumlabs/core/worker';\nrunScenario(scenario);\n`;

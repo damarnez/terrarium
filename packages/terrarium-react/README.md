@@ -1,16 +1,16 @@
-# @terrarium/react
+# @terrariumlabs/react
 
 Mount the [Terrarium](../terrarium/README.md) from a React tree: the chain in a Worker, the EIP-6963 "Terrarium Wallet"
 and the dev bar, for projects that cannot use the Vite plugin (Next.js, Remix, CRA, Storybook).
 
 ```sh
-npm install -D @terrarium/react @terrarium/core
+npm install -D @terrariumlabs/react @terrariumlabs/core
 ```
 
 ```tsx
-import { Terrarium } from '@terrarium/react';
+import { Terrarium } from '@terrariumlabs/react';
 
-// terrarium.worker.ts (three lines):  import scenario from './terrarium.scenario'; import { runScenario } from '@terrarium/core/worker'; runScenario(scenario);
+// terrarium.worker.ts (three lines):  import scenario from './terrarium.scenario'; import { runScenario } from '@terrariumlabs/core/worker'; runScenario(scenario);
 export function Root() {
   return (
     <>

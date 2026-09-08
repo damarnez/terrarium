@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { createServer } from 'node:http';
 import { mkdtempSync, readFileSync, writeFileSync, existsSync, statSync } from 'node:fs';
 import { keccak256, pad } from 'viem';
-import { createTerrarium } from '@terrarium/core/engine';
+import { createTerrarium } from '@terrariumlabs/core/engine';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 

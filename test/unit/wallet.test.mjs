@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BaseError, verifyMessage, verifyTypedData, parseEther } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { createTerrarium, TEST_KEYS } from '@terrarium/core/engine';
+import { createTerrarium, TEST_KEYS } from '@terrariumlabs/core/engine';
 import { boot, rejects, sleep } from './helpers.mjs';
 
 test('accounts: the ten Anvil keys by default, any keys you pass, each funded', async () => {

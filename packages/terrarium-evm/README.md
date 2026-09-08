@@ -1,4 +1,8 @@
-# @terrarium/evm
+# @terrariumlabs/evm
+
+```sh
+npm install @terrariumlabs/evm      # you rarely install it directly: @terrariumlabs/core depends on it
+```
 
 [revm](https://github.com/bluealloy/revm) 43 compiled to WebAssembly, as the execution engine of Terrarium. About 1.5 MB
 of wasm, no C dependencies (k256 for secp256k1, arkworks for bn254/bls12-381, pure-Rust KZG), built with wasm-bindgen
@@ -10,7 +14,7 @@ reverts, blocks and receipts, persistence, fork recording. The engine asks the h
 state diff to apply:
 
 ```js
-import init, { run, version } from '@terrarium/evm';
+import init, { run, version } from '@terrariumlabs/evm';
 await init({ module_or_path: wasmBytesOrUrl });
 const result = JSON.parse(run(host, JSON.stringify({ tx, block, cfg })));
 // result: { success, reason, gasUsed, gasRefunded, output, created, logs, state, sloads }

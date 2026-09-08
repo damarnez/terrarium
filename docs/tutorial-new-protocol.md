@@ -58,7 +58,11 @@ with the pool the user is clicking on. Nothing in `src/` knows any of this exist
 ## 🗂️ The shape of a project
 
 This is what a finished project looks like. The right column says who reads each thing, which is the quickest way to
-understand why it exists.
+understand why it exists. Everything the Terrarium side needs comes from one dev dependency:
+
+```bash
+npm install -D @terrariumlabs/core     # the engine, the scenario runtime, the Vite plugin and the `terrarium` CLI; pulls @terrariumlabs/evm (the wasm)
+```
 
 ```
 my-dapp/
@@ -216,7 +220,7 @@ The fixture is `{ chainId, blockNumber, contracts: { router: { address, code }, 
 > [!WARNING]
 > **Keep the mainnet addresses.** Contracts have each other's addresses baked in as immutables: the router knows its
 factory and WETH, the factory derives pair addresses from its own address and init code hash. Move one and the others
-stop finding it. The Uniswap V2 fixture that ships with the package (`@terrarium/core/fixtures/uniswap-v2-mainnet.json`) was
+stop finding it. The Uniswap V2 fixture that ships with the package (`@terrariumlabs/core/fixtures/uniswap-v2-mainnet.json`) was
 made exactly this way.
 
 - `ctx.install(fixture)` writes code at each address only where there is none yet, so it is safe on every boot.
@@ -297,7 +301,7 @@ connects. It can read `import.meta.env.VITE_*`, so it shares addresses with the 
 ### A. A bootstrapped protocol
 
 ```ts
-import { defineScenario } from '@terrarium/core/scenario';
+import { defineScenario } from '@terrariumlabs/core/scenario';
 import { getContractAddress, maxUint256, parseAbi, parseEther, type Address } from 'viem';
 import protocol from './fixtures/my-protocol.json';
 import { MyToken } from './src/generated/contracts';          // abi + bytecode, from your compiler
@@ -350,7 +354,7 @@ What matters here:
 ### B. A forked protocol
 
 ```ts
-import { defineScenario } from '@terrarium/core/scenario';
+import { defineScenario } from '@terrariumlabs/core/scenario';
 import fixture from './fixtures/my-fork.json';
 import { FixedPriceFeed } from './src/generated/contracts';   // deployedBytecode + storageLayout
 
@@ -420,13 +424,13 @@ Everything else: [api.md](api.md).
 ## 3. Point your dapp at the addresses and inject the Terrarium
 
 Your dapp is configured the way it would be for mainnet: `.env` holds the chain id and the addresses (the fixed mainnet
-ones, and the deterministic ones your scenario deploys). Then one plugin:
+ones, and the deterministic ones your scenario deploys). Then one plugin, from the `@terrariumlabs/core` you installed:
 
 ```ts
 // vite.config.ts
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { terrarium } from '@terrarium/core/vite';
+import { terrarium } from '@terrariumlabs/core/vite';
 
 export default defineConfig({
   plugins: [react(), terrarium()],                 // terrarium({ scenario: 'other.scenario.ts' }) for another file
@@ -439,7 +443,7 @@ export default defineConfig({
 Add `.terrarium/` to `.gitignore` (the plugin generates two small entry files there).
 
 > [!NOTE]
-> Not on Vite? Next.js, Remix, CRA and Storybook mount the same thing from a React component (`@terrarium/react`), and any
+> Not on Vite? Next.js, Remix, CRA and Storybook mount the same thing from a React component (`@terrariumlabs/react`), and any
 > page at all can load the built script. Both paths, with their trade-offs: [integrations.md](integrations.md).
 
 Then:
@@ -495,7 +499,7 @@ The scenario file is for the page. For unit-level checks of your frontend math, 
 from a Node script, with the network forbidden. `examples/aave/test.mjs`:
 
 ```js
-import { createTerrarium } from '@terrarium/core/engine';
+import { createTerrarium } from '@terrariumlabs/core/engine';
 globalThis.fetch = async (url) => { throw new Error(`offline: ${url}`); };                 // any network attempt fails the test
 const sim = await createTerrarium({ chainId: 1,
   fork: { blockNumber: fixture.blockNumber, offline: true }, restore: fixture.dump, seed: 1, clock: () => anchor });   // anchor: the fixture's last block timestamp
@@ -516,7 +520,7 @@ backend. In the page there is no indexer, and the real one describes mainnet, no
 scenario can answer those URLs from the chain in the Worker:
 
 ```ts
-import { defineScenario, reply } from '@terrarium/core/scenario';
+import { defineScenario, reply } from '@terrariumlabs/core/scenario';
 
 export default defineScenario({
   // …

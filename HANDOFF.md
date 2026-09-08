@@ -83,7 +83,7 @@ A review found the engine sound but the packaging around it self-defeating: a be
 protocol, a wallet that could never fail, a boundary that leaked, no fork demo, fragile persistence, nothing
 deterministic, and no positioning. All eight points were addressed:
 1. **Real Uniswap V2.** `Frogpond.sol` is gone. The scenario installs the mainnet runtime bytecode of Router02,
-   Factory and WETH9 at their mainnet addresses (`@terrarium/core/fixtures/`, fetched with `cast code`); the dapp uses the
+   Factory and WETH9 at their mainnet addresses (`@terrariumlabs/core/fixtures/`, fetched with `cast code`); the dapp uses the
    Router02/Pair ABIs. PEPE stays as "your contract".
 2. **Inverted integration.** `src/` has zero knowledge of the simulator. The Terrarium is injected by a Vite plugin
    (dev) or Playwright `addInitScript` (e2e, against the `VITE_TERRARIUM=off` build). The dev bar is a plain-DOM
@@ -106,8 +106,8 @@ Uniswap swaps run out of gas (price accumulators). Fixed in `pendingBlock()`; ca
 fork replay. Verified: `npm run e2e`, `npm run test:uniswap`, `npm run test:fork` all PASS.
 
 ## 8. Third pass (2 Sep 2026, night) — package split + scenario API
-- `packages/terrarium` (npm workspace, imported as `@terrarium/core`, `@terrarium/core/scenario`, `@terrarium/core/worker`,
-  `@terrarium/core/inject`, `@terrarium/core/vite`, `@terrarium/core/fixtures/*`): engine + injected layer + Vite plugin + CLI.
+- `packages/terrarium` (npm workspace, imported as `@terrariumlabs/core`, `@terrariumlabs/core/scenario`, `@terrariumlabs/core/worker`,
+  `@terrariumlabs/core/inject`, `@terrariumlabs/core/vite`, `@terrariumlabs/core/fixtures/*`): engine + injected layer + Vite plugin + CLI.
 - `defineScenario({ chainId, seed, persist, setup(ctx), actors, actorsLabel, status, methods })` replaces the
   hand-written worker scenario; `runScenario` (Worker) provides `ctx` (viem clients, install, chain-clock deadline,
   seeded random, fresh flag, state bag) and the generic `terrarium_actors/status/reset` RPCs.
@@ -118,7 +118,7 @@ fork replay. Verified: `npm run e2e`, `npm run test:uniswap`, `npm run test:fork
   to the Worker (`terrarium_http`) where handlers / GraphQL resolvers answer from the chain. Frogpond answers the Uniswap
   V2 subgraph URL from its own Swap logs, with down / behind controls; the dapp consumes it with plain fetch
   (`src/lib/useIndexer.ts`). Docs: `docs/http-and-subgraphs.md`, `docs/cookbook.md`, `docs/README.md` (index).
-- `@terrarium/react` (`packages/terrarium-react`): `<Terrarium worker>`, `useTerrarium`, `<DevBar>` for React apps off Vite;
+- `@terrariumlabs/react` (`packages/terrarium-react`): `<Terrarium worker>`, `useTerrarium`, `<DevBar>` for React apps off Vite;
   `inject.ts` gained `{ devBar }` and `stopTerrarium()`. Docs: `docs/integrations.md`.
 - Docs: `docs/tutorial-new-protocol.md` (4 steps), `docs/api.md` (everything). Verified: typecheck, plain/injected/CLI
   builds, e2e, test:uniswap, test:fork all PASS.
@@ -181,3 +181,17 @@ fork replay. Verified: `npm run e2e`, `npm run test:uniswap`, `npm run test:fork
 - **Docs.** Tutorial rewritten (two tracks, what `ctx` gives you, the dev bar, Node tests, use cases, troubleshooting);
   api.md corrected (`terrarium_status` shape, `fresh` vs `firstBoot`, `terrarium_reset`, Vite `define`, test ids, bridge);
   README gained the use-case table; design doc says what runs today.
+
+## 12. Seventh pass (8 Sep 2026) — the npm release
+- **Published**: `@terrariumlabs/core` 0.3.0 (`packages/terrarium`: engine, scenario runtime, HTTP routes, bridge, Vite plugin,
+  CLI, Uniswap fixture), `@terrariumlabs/evm` 0.3.0 (`packages/terrarium-evm`: the wasm, 1.5 MB, prebuilt) and
+  `@terrariumlabs/react` 0.3.0. The bare name `terrarium` and the `terrarium` org on npm belong to other people; Daniel owns
+  the `terrariumlabs` org. Folder names in the repo did not change. Publish order: evm, core, react (`npm publish -w …`);
+  `publishConfig.access` is public, inter-package ranges are pinned to `^0.3.0` (a lesson from Tevm, §2).
+- **What the fresh-install test caught**: the Vite plugin entry was a `.ts` file, and Node refuses to type-strip `.ts`
+  inside a consumer's `node_modules` (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`); the workspace never saw it because
+  symlinks resolve outside `node_modules`. It is `vite-plugin.js` + a hand-written `vite-plugin.d.ts` now. The other `.ts`
+  entries are browser code that Vite transpiles, which the packed tarballs proved (engine in Node, a Vite build with the
+  plugin, `npx terrarium build`, all from a scratch project).
+- **Docs**: install lines everywhere a project is set up; `npx terrarium` must run where the package is installed (a bare
+  `npx terrarium` fetches an unrelated package). Roadmap item 6 shrank to the `init` scaffold.

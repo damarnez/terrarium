@@ -2,7 +2,7 @@
 // its provider, the PEPE artifact, and an in-memory persistence store.
 import { readFileSync } from 'node:fs';
 import { createPublicClient, createWalletClient, custom, defineChain, parseEther } from 'viem';
-import { createTerrarium } from '@terrarium/core/engine';
+import { createTerrarium } from '@terrariumlabs/core/engine';
 
 export const PEPE = JSON.parse(readFileSync(new URL('../../contracts/out/PEPE.json', import.meta.url), 'utf8'));
 export const GENESIS_TS = 1_700_000_000;

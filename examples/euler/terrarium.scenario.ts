@@ -1,6 +1,6 @@
 // The Terrarium behind the Euler example: mainnet state at the recorded block (EVC, eWETH-2, eUSDC-2, oracles, WETH,
 // USDC) and the user holding 100 WETH. Offline unless VITE_FORK_RPC is set.
-import { defineScenario } from '@terrarium/core/scenario';
+import { defineScenario } from '@terrariumlabs/core/scenario';
 import fixture from './fixtures/euler-mainnet.json';
 import { EULER } from './src/protocol';
 

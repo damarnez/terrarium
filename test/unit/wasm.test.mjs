@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { keccak256, encodeFunctionData, decodeFunctionResult, decodeErrorResult, getContractAddress, numberToHex } from 'viem';
-import init, { run, version } from '@terrarium/evm';
+import init, { run, version } from '@terrariumlabs/evm';
 import { PEPE } from './helpers.mjs';
 
 await init({ module_or_path: readFileSync(new URL('../../packages/terrarium-evm/pkg/terrarium_evm_bg.wasm', import.meta.url)) });

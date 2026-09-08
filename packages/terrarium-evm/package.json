@@ -1,5 +1,5 @@
 {
-  "name": "@terrarium/evm",
+  "name": "@terrariumlabs/evm",
   "version": "0.3.0",
   "description": "revm compiled to WebAssembly: the fast execution backend for Terrarium",
   "type": "module",

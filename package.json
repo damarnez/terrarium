@@ -17,7 +17,7 @@
     "test:uniswap": "node test/uniswap-v2.mjs",
     "test:fork": "node test/fork-offline.mjs",
     "test:fork:record": "node test/fork-record.mjs",
-    "build:wasm": "npm run build -w @terrarium/evm",
+    "build:wasm": "npm run build -w @terrariumlabs/evm",
     "example:aave": "npm run dev -w example-aave",
     "example:euler": "npm run dev -w example-euler",
     "record:aave": "node examples/aave/record.mjs",
@@ -32,7 +32,7 @@
   "dependencies": {
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "@terrarium/core": "*",
+    "@terrariumlabs/core": "*",
     "viem": "^2.56.3"
   },
   "devDependencies": {

@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { terrarium } from '@terrarium/core/vite';
+import { terrarium } from '@terrariumlabs/core/vite';
 
 export default defineConfig({
   plugins: [react(), terrarium()],

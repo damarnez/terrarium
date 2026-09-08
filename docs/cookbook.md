@@ -273,14 +273,14 @@ Put the addresses your scenario deployed or discovered in `status(ctx)`; tests r
 ## 19. The engine in Node and in Vitest
 
 ```js
-import { createTerrarium } from '@terrarium/core/engine';
+import { createTerrarium } from '@terrariumlabs/core/engine';
 const sim = await createTerrarium({ chainId: 31337, seed: 1, clock: () => 1_700_000_000 });   // deterministic blocks
 const pub = createPublicClient({ chain, transport: custom(sim.provider) });
 const test = createTestClient({ chain, mode: 'anvil', transport: custom(sim.provider) });     // viem's test actions work unchanged: setBalance, mine, snapshot…
 ```
 
 Everything the Worker does, without a page: unit-test your frontend math against the real contracts, or drive a
-scenario through `runScenario` from `@terrarium/core/worker` (the unit suite does both). No network, no Foundry, no browser.
+scenario through `runScenario` from `@terrariumlabs/core/worker` (the unit suite does both). No network, no Foundry, no browser.
 
 ## 20. The wallet vs the node view
 
@@ -315,8 +315,8 @@ Blocks are sealed for real, so a client that verifies what it is told (a light c
 ## 23. React without the Vite plugin
 
 ```tsx
-// terrarium.worker.ts:  import scenario from './terrarium.scenario'; import { runScenario } from '@terrarium/core/worker'; runScenario(scenario);
-import { Terrarium, useTerrarium, DevBar } from '@terrarium/react';
+// terrarium.worker.ts:  import scenario from './terrarium.scenario'; import { runScenario } from '@terrariumlabs/core/worker'; runScenario(scenario);
+import { Terrarium, useTerrarium, DevBar } from '@terrariumlabs/react';
 {import.meta.env.DEV && <Terrarium worker={() => new Worker(new URL('./terrarium.worker.ts', import.meta.url), { type: 'module' })} />}
 const provider = useTerrarium();                         // in a child: the wallet provider for your own dev tools (null until ready)
 <DevBar provider={provider} />                           // only the bar, over any provider answering terrarium_* methods
