@@ -1,6 +1,6 @@
 {
   "name": "@terrariumlabs/evm",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "revm compiled to WebAssembly: the fast execution backend for Terrarium",
   "type": "module",
   "license": "MIT",

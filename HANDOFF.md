@@ -230,7 +230,7 @@ fork replay. Verified: `npm run e2e`, `npm run test:uniswap`, `npm run test:fork
 - **Dev bar.** Grouped: brand + scenario selector + compact status | chain (mine, +1h, blocks, snapshot) | wallet (reject,
   latency, receipts) | scenario (actors + controls, hidden when empty) | transactions, reset, hide. Smaller type, group
   labels, the long status line moved into a tooltip. Test ids unchanged, plus `scenario`, `scenario-name`, `group-*`.
-- **UX pass on the bar.** Toasts for every action (mined, snapshot / revert with block numbers, wallet knobs, time shifts,
+- **UX pass on the bar (published as 0.6.0; 0.5.0 on npm is the scenario-list cut).** Toasts for every action (mined, snapshot / revert with block numbers, wallet knobs, time shifts,
   scenario buttons); a time menu (+1 min / hour / day / week) and the chain clock in the status with its offset from wall time
   once shifted (the `deadline EXPIRED` gotcha made visible); Snapshot shows the block it reverts to; Reset is two clicks
   (armed for 3 s); the Transactions button carries total and failed counts (`terrarium_status.txs`); the explorer gained a
