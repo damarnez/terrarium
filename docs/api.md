@@ -2,9 +2,9 @@
 
 ← [Docs index](README.md) · [Tutorial](tutorial-new-protocol.md) · [Cookbook](cookbook.md) · [Off-chain data](http-and-subgraphs.md)
 
-**Contents:** [createTerrarium](#createterrariumoptions--sim--terrarium--terrariumengine) · [sim](#sim) · [Verifiable blocks](#verifiable-blocks) ·
-[RPC surface](#rpc-surface-providerrequest-method-params-) · [defineScenario](#definescenarioconfig--terrariumscenario) · [HTTP routes](#http-routes-terrariumhttp) ·
-[Recording a protocol](#recording-a-protocol-the-examples-recipe) · [Vite plugin](#vite-plugin--terrariumvite) · [CLI](#cli--npx-terrarium) · [viem transport](#viem-transport--terrariumlabscoretransport) · [Bridge](#the-postmessage-bridge--terrariumbridge) ·
+**Contents:** [createTerrarium](#createterrariumoptions--sim--terrariumlabscore--terrariumlabscoreengine) · [sim](#sim) · [Verifiable blocks](#verifiable-blocks) ·
+[RPC surface](#rpc-surface-providerrequest-method-params-) · [defineScenario](#definescenarioconfig--terrariumlabscorescenario) · [HTTP routes](#http-routes--terrariumlabscorehttp) ·
+[Recording a protocol](#recording-a-protocol-the-examples-recipe) · [Vite plugin](#vite-plugin--terrariumlabscorevite) · [CLI](#cli--npx-terrarium) · [viem transport](#viem-transport--terrariumlabscoretransport) · [Bridge](#the-postmessage-bridge--terrariumlabscorebridge) ·
 [wasm engine](#the-wasm-engine-package-terrariumlabsevm) · [Injected page globals](#injected-page-globals) · [@terrariumlabs/react](#terrariumlabsreact) · [Tests](#tests)
 
 ## `createTerrarium(options)` → `sim`  (`@terrariumlabs/core` / `@terrariumlabs/core/engine`)
@@ -22,7 +22,7 @@
 | `baseFeePerGas` | 1 gwei | base fee of every block (until `anvil_setNextBlockBaseFeePerGas`) |
 | `blockGasLimit` | 30,000,000 | block gas limit; also the gas limit of `gasEstimation: 'fast'` transactions |
 | `mining` | `{ mode: 'auto' }` | `auto` (a block per tx), `manual` (`evm_mine`), `interval` (`evm_setIntervalMining`), `follow` (`sim.followChain`) |
-| `gasEstimation` | `'exact'` | `'exact'`: reth-style estimation against the **pending** block, run inside the wasm engine in one call (a run at the cap, the optimistic (used + refunded + stipend) · 64/63 probe, then a bisection starting near 3× the gas used, within 1.5 %; the runs share a read cache and touch no state). Formerly geth-style in JavaScript (full run, 64/63 probe, binary search). `'fast'`: block gas limit, no estimation (CI) |
+| `gasEstimation` | `'exact'` | `'exact'`: the estimation the reth node uses, run inside the wasm engine in one call against the **pending** block (a run at the cap, the optimistic (used + refunded + stipend) · 64/63 probe, then a bisection that starts near 3× the gas used and stops within 1.5 %; the runs share a read cache and touch no state). `'fast'`: the block gas limit, no estimation (CI) |
 | `clock` | `() => Math.floor(Date.now()/1000)` | seconds source for block timestamps. Blocks are at least one second apart; a fixed clock gives deterministic timestamps |
 | `seed` | random | seed for `sim.random()` (mulberry32) |
 | `wallet` | `{ rejectNext: 0, latencyMs: 0, receiptLagMs: 0 }` | wallet realism knobs, see `terrarium_setWallet` |
@@ -67,13 +67,17 @@ with a spec-level bloom and receipt encoder independent of the engine's. A trans
 funds) gets a failed receipt with `droppedReason` instead, so `waitForTransactionReceipt` never hangs.
 
 ## RPC surface (`provider.request({ method, params })`)
-- **Node**: `eth_chainId net_version web3_clientVersion eth_syncing eth_blockNumber eth_getBlockByNumber eth_getBlockByHash eth_getBalance eth_getTransactionCount eth_getCode eth_getStorageAt eth_gasPrice eth_maxPriorityFeePerGas eth_feeHistory eth_call eth_estimateGas eth_sendRawTransaction eth_getTransactionReceipt eth_getTransactionByHash eth_getLogs eth_newFilter eth_newBlockFilter eth_newPendingTransactionFilter eth_getFilterChanges eth_getFilterLogs eth_uninstallFilter eth_subscribe eth_unsubscribe`. `eth_call` accepts a geth state-override set (`balance nonce code state stateDiff`) as the third param; the `pending` tag simulates on the next block;
-  `eth_getBlockByNumber('pending')` returns the next block (real number and timestamp, `hash: null`, the mempool as `transactions`) like geth/Anvil. `eth_subscribe` answers `0x1` and new heads arrive as EIP-1193 `message` events (`{ type: 'eth_subscription', data: { subscription, result } }`); viem's `custom` transport polls anyway.
-- **Wallet**: `eth_accounts eth_requestAccounts eth_sendTransaction personal_sign eth_signTypedData_v4 wallet_switchEthereumChain wallet_addEthereumChain wallet_getPermissions wallet_requestPermissions wallet_revokePermissions`. Wallet methods pass through the latency / rejection gate (before the state lock, so reads keep flowing).
-- **Cheatcodes** (Anvil and Hardhat names, so viem's `createTestClient({ mode: 'anvil' })` works unchanged): `evm_mine anvil_mine hardhat_mine evm_setNextBlockTimestamp evm_increaseTime (negative allowed) evm_setAutomine evm_setIntervalMining anvil_setBalance anvil_setCode anvil_setNonce anvil_setStorageAt anvil_loadState anvil_impersonateAccount anvil_stopImpersonatingAccount anvil_setNextBlockBaseFeePerGas evm_snapshot evm_revert`; every `anvil_*` also as `hardhat_*`, and `anvil_setNextBlockTimestamp / anvil_increaseTime / anvil_setAutomine / anvil_setIntervalMining` as aliases of the `evm_*` ones. `anvil_loadState(dump)` takes what Anvil's `anvil_dumpState` / `--dump-state` produce (the gzipped JSON as hex, or the parsed `{ accounts: { address: { nonce, balance, code, storage } } }`) and writes every account's code, storage, nonce and balance in one journaled call; it returns `{ accounts, slots }`.
-- **Terrarium**: `terrarium_transactions({ limit?, before? })` → `sim.transactions(...)` (under `runScenario`, decoded: see below), `sim_deal(token, holder, amountHex, opts)`, `sim_setState(address, layout, values)`, `sim_dumpState()`, `terrarium_setWallet({ rejectNext?, latencyMs?, receiptLagMs? })` → the knobs, `terrarium_getWallet()`.
-- **Scenario runtime** (when run through `runScenario`): `terrarium_scenarios()` → `{ active, scenarios: [{ name, description, persist }] }`, `terrarium_selectScenario(name)` → name (stores the choice, stops the chain, asks the page to reload; a no-op for the active one; throws for an unknown name), `terrarium_actors(on?)` → enabled, `terrarium_status()` → `{ scenario, now (chain clock, hex seconds), txs: { total, pending, failed }, chainId, engine, block, accounts, actors, actorsLabel, hasActors, wallet, controls, restoredFromPersistence, localBlocks, fork: null | { blockNumber, offline, misses }, http: { routes, hits }, ...status(ctx) }`, `terrarium_reset()` (stops actors and timers, **clears the whole IndexedDB store** of this origin, returns true; the dev bar reloads), `terrarium_httpRoutes()` → the scenario's `http` routes in wire form, `terrarium_http(index, { url, method, headers?, body? })` → `{ status, headers, body }` (runs one route; what the patched `fetch` calls), plus anything in `methods`.
-- Errors carry EIP-1193 / JSON-RPC codes and extend viem's `BaseError`: `3` execution reverted (with revert `data`), `4001` user rejected, `4100` unauthorized (unknown signer, or a wallet method on `node`), `4902` unknown chain, `-32000` node errors (`no key for 0x…`, `filter not found`), `-32601` unknown method. viem decodes them unchanged and does not retry them.
+The provider answers the same JSON-RPC a node and a wallet would, plus the cheatcodes of Anvil and Hardhat and a few methods of its own.
+
+| family | methods | notes |
+|---|---|---|
+| node | `eth_chainId net_version web3_clientVersion eth_syncing eth_blockNumber eth_getBlockByNumber eth_getBlockByHash eth_getBalance eth_getTransactionCount eth_getCode eth_getStorageAt eth_gasPrice eth_maxPriorityFeePerGas eth_feeHistory eth_call eth_estimateGas eth_sendRawTransaction eth_getTransactionReceipt eth_getTransactionByHash eth_getLogs eth_newFilter eth_newBlockFilter eth_newPendingTransactionFilter eth_getFilterChanges eth_getFilterLogs eth_uninstallFilter eth_subscribe eth_unsubscribe` | `eth_call` accepts a geth state-override set (`balance nonce code state stateDiff`) as the third param, and the `pending` tag simulates on the next block. `eth_getBlockByNumber('pending')` returns the next block like geth and Anvil do: the real number and timestamp, `hash: null`, the mempool as `transactions`. `eth_subscribe` answers `0x1` and new heads arrive as EIP-1193 `message` events (`{ type: 'eth_subscription', data: { subscription, result } }`); viem's `custom` transport polls anyway |
+| wallet | `eth_accounts eth_requestAccounts eth_sendTransaction personal_sign eth_signTypedData_v4 wallet_switchEthereumChain wallet_addEthereumChain wallet_getPermissions wallet_requestPermissions wallet_revokePermissions` | these pass through the latency and rejection gate, which sits before the state lock so reads keep flowing while a signature "takes two seconds" |
+| cheatcodes | `evm_mine anvil_mine hardhat_mine evm_setNextBlockTimestamp evm_increaseTime evm_setAutomine evm_setIntervalMining anvil_setBalance anvil_setCode anvil_setNonce anvil_setStorageAt anvil_loadState anvil_impersonateAccount anvil_stopImpersonatingAccount anvil_setNextBlockBaseFeePerGas evm_snapshot evm_revert` | Anvil and Hardhat names, so viem's `createTestClient({ mode: 'anvil' })` works unchanged: every `anvil_*` also exists as `hardhat_*`, and `anvil_setNextBlockTimestamp`, `anvil_increaseTime`, `anvil_setAutomine`, `anvil_setIntervalMining` alias the `evm_*` ones. `evm_increaseTime` accepts a negative number. `anvil_loadState(dump)` takes what Anvil's `anvil_dumpState` or `--dump-state` produce, the gzipped JSON as hex or the parsed `{ accounts: { address: { nonce, balance, code, storage } } }`, writes every account's code, storage, nonce and balance in one journaled call and returns `{ accounts, slots }` |
+| Terrarium | `terrarium_transactions({ limit?, before? })`, `sim_deal(token, holder, amountHex, opts)`, `sim_setState(address, layout, values)`, `sim_dumpState()`, `terrarium_setWallet({ rejectNext?, latencyMs?, receiptLagMs? })`, `terrarium_getWallet()` | `terrarium_transactions` is `sim.transactions(...)`; under `runScenario` it comes back decoded and labelled (see the scenario runtime row). `terrarium_setWallet` returns the knobs |
+| scenario runtime (under `runScenario`) | `terrarium_scenarios()`, `terrarium_selectScenario(name)`, `terrarium_actors(on?)`, `terrarium_status()`, `terrarium_reset()`, `terrarium_httpRoutes()`, `terrarium_http(index, request)`, plus everything in the scenario's `methods` | `terrarium_scenarios` returns `{ active, scenarios: [{ name, description, persist }] }`. `terrarium_selectScenario` stores the choice, stops the chain and asks the page to reload into the chosen scenario; it is a no-op for the active one and throws for an unknown name. `terrarium_actors` returns whether the actors are on. `terrarium_status` returns `{ scenario, now (the chain clock, hex seconds), txs: { total, pending, failed }, chainId, engine, block, accounts, actors, actorsLabel, hasActors, wallet, controls, restoredFromPersistence, localBlocks, fork: null \| { blockNumber, offline, misses }, http: { routes, hits }, ...status(ctx) }`. `terrarium_reset` stops the actors, removes this scenario's persisted chain (its core, its block chunks and its actors flag) and returns true; other scenarios and the stored selection stay, and the dev bar reloads the page. `terrarium_httpRoutes` returns the scenario's `http` routes in wire form; `terrarium_http(index, { url, method, headers?, body? })` runs one route and returns `{ status, headers, body }`, which is what the patched `fetch` calls |
+
+Errors carry EIP-1193 and JSON-RPC codes and extend viem's `BaseError`, so viem decodes them unchanged and does not retry them: `3` execution reverted (with the revert `data`), `4001` user rejected, `4100` unauthorized (an unknown signer, or a wallet method on `node`), `4902` unknown chain, `-32000` node errors such as `no key for 0x…` and `filter not found`, `-32601` unknown method.
 
 ## `defineScenario(config)`  (`@terrariumlabs/core/scenario`)
 One scenario, or several: `export default defineScenarios([fresh, afterCrash, indexerDown])` (a plain array works). With a list the
@@ -94,19 +98,29 @@ finds its chain again. `terrarium_reset` wipes only the active scenario's chain.
 | `actorsLabel` | dev bar label for the toggle (default `Actors`) |
 | `status(ctx)` | extra fields merged into `terrarium_status` |
 | `methods` | `{ terrarium_x: (ctx, ...args) => result }` |
-| `http` | `HttpRoute[]`: the dapp's HTTP calls to answer from the chain (see [HTTP routes](#http-routes-terrariumhttp)) |
-| `abis` | extra `Abi[]` for `terrarium_transactions` (the dev bar's transaction explorer). Decoding order for a call (`method: { name, args }`), an event (`logs[i].decoded: { name, args }`) or a custom error (`revert: { name, args }`): the address's own ABI from `ctx.label(address, name, abi)`, then these, then the **built-in known ABI** (ERC-20/721/1155/4626 events and functions, WETH, Uniswap V2 pair/factory, Uniswap V3 Swap, Ownable, pausable, proxies, roles, OpenZeppelin 5 custom errors, `Error(string)`, `Panic`). What nothing covers is shown raw (`method: { selector }`, topics + data, `revertData`) |
-| `labels` | `{ [address]: name }` for addresses known up front. Addresses discovered in `setup` are named with `ctx.label(address, name)`; `install(fixture)` names contracts by their fixture keys; the sim's accounts are `You (#0)` and `Account #i` unless named. A fixture's own `names` / `abis` maps (by address) register too. Precedence: `ctx.label` > `labels` > fixture keys and `names` > accounts |
+| `http` | `HttpRoute[]`: the dapp's HTTP calls to answer from the chain (see [HTTP routes](#http-routes--terrariumlabscorehttp)) |
+| `abis` | extra `Abi[]` for `terrarium_transactions`, the data behind the dev bar's transaction explorer: what decodes calls (`method: { name, args }`), events (`logs[i].decoded: { name, args }`) and custom errors (`revert: { name, args }`). Anything no ABI covers is shown raw: `method: { selector }`, topics and data, `revertData`. See the decoding order below |
+| `labels` | `{ [address]: name }` for addresses known up front, shown in the explorer instead of hex. Addresses discovered in `setup` are named with `ctx.label(address, name)`. See the naming order below |
 
-`ctx`: `sim`, `chainId`, `accounts`, `rpc(method, params)`, `pub` (viem public client), `wallet(account)` (viem wallet
-client signing with the sim's keys), `wait(hashOrPromise)`, `deadline(seconds = 3600)` (chain clock), `random()`,
-`fresh` (block 0: first boot or after Reset; **never true in fork mode**, where the chain starts at the fork block + 1),
-`firstBoot` (nothing persisted yet, even if a fixture was restored: the once-only hook for fork scenarios), `codeAt(address)`,
-`install(fixture)` (a code fixture: writes each contract's code only where there is none; an Anvil state fixture from `terrarium import-anvil`: whole
-accounts through `anvil_loadState`, contracts skipped once they have code, plain accounts written only on a fresh chain), `reload()` (asks the page
-to reload, for a method that reset or rebuilt the chain), `label(address, name, abi?)` (name an address in the transaction explorer,
-optionally with the ABI that decodes its calls, events and custom errors; `install` names fixture contracts by their keys), `state`
-(free-form bag).
+How the explorer decodes a transaction to or from an address: it tries the address's own ABI first (given with `ctx.label(address, name, abi)`, or carried by the fixture that installed it), then the scenario's `abis`, then the **known ABI**, a built-in set of the events, functions and errors most protocols share (ERC-20, ERC-721, ERC-1155 and ERC-4626, WETH, the Uniswap V2 pair and factory, the Uniswap V3 Swap, Ownable, pausable, proxies, roles, OpenZeppelin 5's custom errors, `Error(string)` and `Panic`). How it names an address: a `ctx.label` wins, then the scenario's `labels`, then a fixture's keys or its `names` map, then the sim's own accounts as `You (#0)` and `Account #i`.
+
+`ctx`, what `setup`, the actors, `methods`, `status` and `http` handlers receive:
+
+| member | what |
+|---|---|
+| `sim`, `chainId`, `accounts` | the engine, the chain id, the ten test addresses (`accounts[0]` is the user in the browser) |
+| `rpc(method, params)` | any RPC method, cheatcodes included |
+| `pub`, `wallet(account)` | a viem public client on the chain, and a wallet client signing with the sim's keys |
+| `wait(hashOrPromise)` | the receipt |
+| `deadline(seconds = 3600)` | a deadline from the chain clock, never from `Date.now()` |
+| `random()` | the seeded generator |
+| `fresh` | true at block 0, on the first boot or after Reset; **never true in fork mode**, where the chain starts at the fork block + 1 |
+| `firstBoot` | true when nothing was persisted yet, even if a fixture was restored: the once-only hook for fork scenarios |
+| `codeAt(address)` | the runtime code, `0x` for none |
+| `install(fixture)` | a code fixture writes each contract's code only where there is none; an Anvil state fixture (`terrarium import-anvil`) writes whole accounts through `anvil_loadState`, skipping contracts that already have code and writing plain accounts only on a fresh chain. Either kind may carry `names` and `abis` maps, registered for the explorer; contracts are also named by their fixture keys |
+| `label(address, name, abi?)` | name an address in the explorer and, with an ABI, decode its calls, events and custom errors |
+| `reload()` | ask the page to reload, for a method that reset or rebuilt the chain |
+| `state` | a free-form bag for what `setup` discovers and the actors, `methods` and `status` need later |
 
 ## HTTP routes  (`@terrariumlabs/core/http`)
 The page's `fetch` is patched by `startTerrarium`; requests matching a scenario `http` route are posted to the Worker and
@@ -151,26 +165,13 @@ installed. Also exported: `workerEntry(scenarioImport)`, `reactMountEntry(devBar
 ## CLI  (`npx terrarium`)
 The `terrarium` binary ships with `@terrariumlabs/core`; `npx terrarium …` finds it in a project that has the package installed
 (elsewhere: `npx -p @terrariumlabs/core terrarium …`, since a bare `npx terrarium` resolves to an unrelated npm package).
-- `terrarium build [--scenario file] [--out dir] [--devbar hidden|off]`: one injectable classic script `dist-terrarium/terrarium.js` (IIFE,
-  Worker bundle and wasm embedded, ≈2.8 MB) plus `terrarium.worker.js`. Built with Vite from the cwd, so the scenario's
-  `import.meta.env.VITE_*` come from the cwd's `.env` files.
-- `terrarium fetch-code <name=0xaddress>... --rpc <url> [--block N] [--chain ID] [--out fixture.json]`: runtime bytecode
-  fixture for `ctx.install`: `{ source, chainId, blockNumber, fetchedAt, contracts: { name: { address, code } } }`. The code is
-  read at `--block` (default: the node's latest). `--chain` exits 1 if the node serves another chain; an address without
-  code exits 1.
-- `terrarium record [name=0xaddress]... --rpc <url> [--block N] [--chain ID] [--storage name:slot,slot]... [--script file.mjs] [--keep] [--out fixture.json]`:
-  the state of a chain at a block as an offline fork fixture. Forks at `--block` (default: latest − 8) with the chain clock
-  anchored to that block's timestamp, reads each named account (balance, nonce, code) and each `--storage` slot, then runs
-  the script's default export `async ({ sim, pub, wallet, accounts, addresses, rpc, viem }) => expected` against the fork
-  (every touched account, code blob and slot is recorded) inside a snapshot that is reverted afterwards unless `--keep`.
-  Writes `{ source, chainId, blockNumber, timestamp, recordedAt, addresses, expected, remoteReads, dump }`, then boots the
-  file with the network forbidden and reads the named accounts back; a fixture that cannot replay is not written (exit 1).
-  Consumed by a scenario as `fork: { blockNumber: fixture.blockNumber, offline: true }, restore: fixture.dump, clock: 'recording'`.
-- `terrarium import-anvil [name=0xaddress]... --rpc <url> [--broadcast run-latest.json] [--artifacts out/] [--out fixture.json] [--skip 0xaddress]...`: (`--broadcast`: a Foundry broadcast file, contract names by address; `--artifacts`: the `out/` or `artifacts/` directory, their ABIs by contract name; both land in the fixture as `names` / `abis`, which `install` registers for the explorer) everything a running Anvil holds, as a fixture for
-  `ctx.install`: `anvil_dumpState` inflated into `{ source, chainId, blockNumber, importedAt, accounts: { address: { nonce, balance, code,
-  storage } } }`. Deploy a protocol with its own tooling (`forge script --broadcast`, `hardhat deploy`) against Anvil, import, and the
-  Terrarium boots from the same bytes. Anvil's ten test accounts (the Terrarium's own, funded at genesis) contribute only their nonces;
-  `--skip` leaves other accounts out.
+| command | what it does |
+|---|---|
+| `terrarium build [--scenario file] [--out dir] [--devbar hidden\|off]` | one injectable classic script, `dist-terrarium/terrarium.js` (an IIFE with the Worker bundle and the wasm embedded, about 2.8 MB) plus `terrarium.worker.js`. Built with Vite from the current directory, so the scenario's `import.meta.env.VITE_*` values come from that directory's `.env` files. `--devbar hidden` starts the bar collapsed to the leaf, `--devbar off` leaves it out |
+| `terrarium fetch-code <name=0xaddress>... --rpc <url> [--block N] [--chain ID] [--out fixture.json]` | a runtime bytecode fixture for `ctx.install`: `{ source, chainId, blockNumber, fetchedAt, contracts: { name: { address, code } } }`. The code is read at `--block` (default: the node's latest). `--chain` exits 1 if the node serves another chain, and so does an address without code |
+| `terrarium record [name=0xaddress]... --rpc <url> [--block N] [--chain ID] [--storage name:slot,slot]... [--script file.mjs] [--keep] [--out fixture.json]` | the state of a chain at a block as an offline fork fixture. It forks at `--block` (default: latest minus 8) with the chain clock anchored to that block's timestamp, reads each named account (balance, nonce, code) and each `--storage` slot, then runs the script's default export `async ({ sim, pub, wallet, accounts, addresses, rpc, viem }) => expected` against the fork, recording every touched account, code blob and slot, inside a snapshot that is reverted afterwards unless `--keep`. It writes `{ source, chainId, blockNumber, timestamp, recordedAt, addresses, expected, remoteReads, dump }`, then boots the file with the network forbidden and reads the named accounts back; a fixture that cannot replay is not written (exit 1). A scenario consumes it as `fork: { blockNumber: fixture.blockNumber, offline: true }, restore: fixture.dump, clock: 'recording'` |
+| `terrarium import-anvil [name=0xaddress]... --rpc <url> [--broadcast run-latest.json] [--artifacts out/] [--out fixture.json] [--skip 0xaddress]...` | everything a running Anvil holds, as a fixture for `ctx.install`: `anvil_dumpState` inflated into `{ source, chainId, blockNumber, importedAt, accounts: { address: { nonce, balance, code, storage } }, names?, abis? }`. Deploy a protocol with its own tooling (`forge script --broadcast`, `hardhat deploy`) against Anvil, import, and the Terrarium boots from the same bytes. `--broadcast` takes the contract names from a Foundry broadcast file and `--artifacts` finds their ABIs in the `out/` or `artifacts/` directory; both land in the fixture as `names` and `abis`, which `install` registers so the dev bar's explorer shows the deployment decoded. `name=0xaddress` names anything else. Anvil's ten test accounts are the Terrarium's own, funded at genesis, so they contribute only their nonces; `--skip` leaves accounts out |
+
 
 ## viem transport  (`@terrariumlabs/core/transport`)
 `terrariumTransport({ timeoutMs? })`: a viem `custom()` transport whose requests go to the Terrarium Wallet, found through its EIP-6963
@@ -186,50 +187,64 @@ the EIP-1193 facade: requests made before `ready` are queued; errors come back a
 with `code` and `data`). `runScenario` and `startTerrarium` use these; you only need them for a custom host.
 
 ## The wasm engine package (`@terrariumlabs/evm`)
-`packages/terrarium-evm`: revm 43 compiled to `wasm32-unknown-unknown` with wasm-bindgen (`--target web`), no C
-dependencies (k256 / ark / pure-Rust KZG fallbacks). `engine.js` drives it; you normally never call it directly.
-- `init({ module_or_path })` (default export): instantiate; bytes, URL or Response. `engine.js` passes bytes in Node and
-  lets the glue resolve `terrarium_evm_bg.wasm` next to itself in the browser (Vite asset; data URL in the standalone bundle).
-- `run(host, requestJson) → resultJson`. Request: `{ tx: { from, to|null, value, data, gasLimit, gasPrice, priorityFee?,
-  nonce?, txType? }, block: { number, timestamp, gasLimit, baseFee, coinbase?, prevRandao? }, cfg: { chainId, spec?,
-  skipBalance?, skipNonce?, skipBlockGasLimit?, noBaseFee?, skipEip3607?, traceSloads? } }` (all numbers hex strings).
-  Result: `{ success, reason, gasUsed, gasRefunded, output, created, logs: [{ address, topics, data }], state: [{ address,
-  deleted, balance, nonce, codeHash, code?, storage: [[slot, value]] }], sloads: [[address, slot]] }`.
-  Throws `"missing"` when the host threw `{ missing: true }` (state to fetch, then re-run) and `"invalid: ..."` for a tx a
-  node would refuse (nonce, funds, `PriorityFeeGreaterThanMaxFee`).
-- `host`: `{ account(address) → null | { balance, nonce, codeHash, code }, storage(address, slot) → 32-byte hex,
-  blockHash(number) → hex }`, all synchronous. The engine's implementation is the state mirror in `engine.js`.
-- `version()`. `smoke.mjs` in the package is a minimal Node example (deploy PEPE, call, SLOAD trace); `test/unit/wasm.test.mjs` covers the contract above.
-- Build: `npm run build:wasm` = `cargo build --release --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir pkg`.
+`packages/terrarium-evm` is revm 43 compiled to `wasm32-unknown-unknown` with wasm-bindgen (`--target web`), with no C dependencies (k256, ark and a pure-Rust KZG stand in), then shrunk with `wasm-opt -O3`: 1.29 MB, 463 KB gzipped. `engine.js` drives it; you normally never call it directly.
+
+| export | what |
+|---|---|
+| `init({ module_or_path })` (default export) | instantiate from bytes, a URL or a Response. `engine.js` passes bytes in Node and lets the glue resolve `terrarium_evm_bg.wasm` next to itself in the browser (a Vite asset, or a data URL in the standalone bundle) |
+| `run(host, requestJson) → resultJson` | execute one transaction. Request: `{ tx: { from, to\|null, value, data, gasLimit, gasPrice, priorityFee?, nonce?, txType? }, block: { number, timestamp, gasLimit, baseFee, coinbase?, prevRandao? }, cfg: { chainId, spec?, skipBalance?, skipNonce?, skipBlockGasLimit?, noBaseFee?, skipEip3607?, traceSloads? } }`, all numbers as hex strings. Result: `{ success, reason, gasUsed, gasRefunded, output, created, logs: [{ address, topics, data }], state: [{ address, deleted, balance, nonce, codeHash, code?, storage: [[slot, value]] }], sloads: [[address, slot]] }`. Throws `"missing"` when the host threw `{ missing: true }` (fetch the state, then run again) and `"invalid: ..."` for a transaction a node would refuse (nonce, funds, `PriorityFeeGreaterThanMaxFee`) |
+| `estimate(host, requestJson) → resultJson` | reth's gas estimation in one call, with `tx.gasLimit` as the cap: a run at the cap, the optimistic `(used + refunded + 2300) · 64/63` probe, then a bisection that starts at `min(3 · used, mid)` and stops within 1.5 %. The runs share one read cache and commit nothing. Result: `{ gas, runs, success, reason, output, gasUsed }`; a revert at the cap comes back as `success: false` with the revert `output`, since more gas would not help. Throws `"missing"` like `run` |
+| `host` | what you pass in: `{ account(address, wantCode) → null \| { balance, nonce, codeHash, code? }, storage(address, slot) → 32-byte hex, blockHash(number) → hex }`, all synchronous. The wasm caches analysed bytecode by code hash across calls and asks for a contract's code once: it first calls `account(address, false)`, where the host may leave `code` out, and calls again with `wantCode` true only when it has not seen that code hash. A host that always includes `code` works too; a host must never answer `'0x'` for a contract, because that means "no code". The engine's implementation is the state mirror in `engine.js` |
+| `version()` | the crate and revm versions |
+
+`smoke.mjs` in the package is a minimal Node example (deploy PEPE, call, SLOAD trace), and `test/unit/wasm.test.mjs` covers the contract above. To rebuild: `npm run build:wasm`, which runs `cargo build --release --target wasm32-unknown-unknown`, `wasm-bindgen --target web --out-dir pkg` and `wasm-opt -O3` (binaryen, `brew install binaryen`); `pkg/` is committed so JavaScript users need no Rust.
 
 ## Injected page globals
 `startTerrarium(worker, { devBar? })` from `@terrariumlabs/core/inject` wires a Worker up as the wallet, sets the globals below and
-mounts the dev bar (`devBar: 'hidden'` mounts it collapsed to the leaf, `devBar: false` skips it); it returns the provider. Starting again replaces the previous instance.
-`stopTerrarium()` undoes it: stops announcing, terminates the Worker, removes the dev bar and `window.terrarium`.
-`mountDevBar(provider, { hidden? })` from `@terrariumlabs/core/devbar` mounts only the bar over any provider answering the `terrarium_*` methods.
+mounts the dev bar; it returns the provider, and starting again replaces the previous instance. `devBar: 'hidden'` mounts the bar
+collapsed to the leaf and `devBar: false` leaves it out. `stopTerrarium()` undoes everything: it stops announcing, terminates the
+Worker, removes the dev bar and `window.terrarium`. `mountDevBar(provider, { hidden? })` and `unmountDevBar()` from
+`@terrariumlabs/core/devbar` handle only the bar, over any provider that answers the `terrarium_*` methods.
 
-`window.terrarium = { provider, request(method, params) }`: the wallet's own global, like `window.ethereum`. For tests
-and the console, never for the dapp. A `reload` event from the Worker (`ctx.reload()` in a scenario method that reset or rebuilt the
-chain) reloads the page. `window.fetch` is replaced by the HTTP interceptor when the scenario declares
-`http` routes (unmatched requests pass through to the original). The dev bar mounts as `<footer id="terrarium-devbar" data-testid="devbar">` with
-controls in groups (`group-chain`, `group-wallet`, `group-scenario`, `group-tools`) with `data-testid`s: `block` (the head counter),
-`scenario` (the selector, present with several scenarios) / `scenario-name` (one named scenario), `clock` (the chain clock, with its
-offset from wall time once time has been shifted), `mine`, `time` (a menu: `plus-minute plus-hour plus-day plus-week`), `mining`, `snapshot`
-(shows the block it would revert to), `actors reject-next wallet-latency receipt-lag`, `txs` (with a total and a failed count),
-`reset` (two clicks: the first arms it for three seconds), `hide`, and `control-<i>` for the scenario's `controls` in order. Every
-action shows a short toast (`toast`). Keyboard: `Alt+Shift+T` hides / shows the bar, `Alt+Shift+X` toggles the explorer, `Esc` closes
-it. The explorer has a text filter (`tx-search`: hash, address, label, method or event name) next to the all / mine / failed selector,
-a height toggle (`explorer-size`), and clicking a hash copies it. `txs` toggles the
-**transaction explorer** (`<section id="terrarium-explorer" data-testid="explorer">`, a panel above the bar): every transaction
-newest first with status, block, time, hash, decoded method, labelled from/to, value, gas and event count (`tx-row`, with
-`data-hash` and `data-status`; `tx-filter` selects all / mine / failed); a click expands it (`tx-detail`: receipt fields, decoded call and arguments, raw input, revert
-reason and data, `tx-events` with each event decoded or as topics + data). `hide` hides the bar; a leaf button at the bottom
-right (`show`, `#terrarium-devbar-show`) brings it back, and the choice is remembered in `localStorage` (`terrarium:devbar-hidden`),
-winning over the `devBar: 'hidden'` default of the plugin / `startTerrarium` / `--devbar hidden`.
-`unmountDevBar()` removes bar, panel and leaf.
+`window.terrarium = { provider, request(method, params) }` is the wallet's own global, like `window.ethereum`: for tests and the
+console, never for the dapp. A `reload` event from the Worker (`ctx.reload()` in a scenario method that reset or rebuilt the
+chain) reloads the page. `window.fetch` is replaced by the HTTP interceptor when the scenario declares `http` routes; unmatched
+requests pass through to the original.
+
+The dev bar mounts as `<footer id="terrarium-devbar" data-testid="devbar">`. Its controls sit in groups (`group-chain`,
+`group-wallet`, `group-scenario`, `group-tools`) and every control carries a `data-testid`, so tests drive the bar the way a
+person does:
+
+| control | test id | what it does |
+|---|---|---|
+| scenario selector / name | `scenario` / `scenario-name` | with several scenarios, a `<select>`; a change stores the choice and reloads the page into it. With one named scenario, its name |
+| status | `block`, `clock` | the head block and the chain clock; the clock turns yellow with its offset once time has been shifted. Fork, HTTP and restore notes follow |
+| Mine a block | `mine` | one empty block |
+| Time menu | `time`, then `plus-minute plus-hour plus-day plus-week` | move the chain clock forward and seal a block at the new time |
+| Blocks | `mining` | a block per transaction, or one every 3 seconds |
+| Snapshot | `snapshot` | take a snapshot; the button then names the block it reverts to |
+| wallet knobs | `reject-next`, `wallet-latency`, `receipt-lag` | reject the next signature, answer in 2 seconds, deliver receipts 3 seconds late |
+| actors | `actors` | the scenario's toggled actors, labelled with `actorsLabel` |
+| scenario buttons | `control-<i>` | the scenario's `controls`, in order |
+| Transactions | `txs` | opens the explorer; the badge shows the total, plus pending and failed counts |
+| Reset | `reset` | two clicks within 3 seconds: wipes this scenario's chain and reloads |
+| Hide / show | `hide`, `show` | collapse the bar to the leaf at the bottom right and back; remembered in `localStorage` under `terrarium:devbar-hidden`, which wins over the `devBar: 'hidden'` default |
+| toasts | `toast` | every action confirms itself in a short toast |
+
+The explorer is `<section id="terrarium-explorer" data-testid="explorer">`, a panel above the bar:
+
+| element | test id | what it shows |
+|---|---|---|
+| a row | `tx-row` (with `data-hash`, `data-status`) | status, block, time, hash, decoded method, labelled from and to, value, gas used, event count; newest first, pending first |
+| its detail | `tx-detail`, `tx-events` | receipt fields, the decoded call and arguments, the raw input, the revert reason and data, every event decoded or as topics and data |
+| filters | `tx-search`, `tx-filter` | a text filter over hash, address, label, method and event names, and an all / mine / failed selector |
+| size | `explorer-size` | a taller mode |
+| count | `explorer-count` | how many transactions the chain has and how many are shown |
+
+Keyboard: `Alt+Shift+T` hides or shows the bar, `Alt+Shift+X` toggles the explorer, `Esc` closes it. Clicking a hash copies it.
 
 ## `@terrariumlabs/react`
-A separate package (`packages/terrarium-react`, peer dependencies `react >= 18` and `terrarium`) for React projects that
+A separate package (`packages/terrarium-react`, peer dependencies `react >= 18` and `@terrariumlabs/core`) for React projects that
 cannot use the Vite plugin. Guide with the Next.js and Storybook recipes: [integrations.md](integrations.md).
 
 | export | what |

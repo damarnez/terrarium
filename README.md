@@ -26,12 +26,17 @@ No node process, no browser extension, no faucet. Your dapp does not know it is 
 
 ## Why
 
-- 🧬&nbsp; **Real contracts, not mocks.** The mainnet bytecode of Uniswap V2, Aave V3, Euler V2 runs unchanged; reverts, gas and events are the real ones. There is no JavaScript mock of a contract anywhere.
-- 🫙&nbsp; **Zero infrastructure.** The chain lives in a Web Worker on the page. A Vercel preview, a Storybook, a Playwright run, a live demo: nothing to deploy, no RPC quota, deterministic and offline.
-- 🦊&nbsp; **Injected like a wallet extension.** Your dapp discovers "Terrarium Wallet" through EIP-6963 and talks to it as it would to MetaMask. `src/` never imports the simulator; the production bundle contains not one byte of it.
-- 🕹️&nbsp; **Break things on purpose.** Crash an oracle, drain a pool, make the wallet reject or stall, lag the receipts, move time, snapshot and revert, let bots trade around the user, take the indexer down.
-- 📼&nbsp; **Record mainnet at a block, replay offline.** `npx terrarium record --chain 1 --block N` captures every byte a session touches into a fixture the scenario restores with the network unplugged.
-- 🕸️&nbsp; **Subgraphs and APIs answered from the chain.** The dapp's `fetch` to its indexer or price API is answered by the scenario, from the chain in the page, so off-chain data agrees with the pool the user is clicking on.
+**Real contracts, not mocks.** The mainnet bytecode of Uniswap V2, Aave V3 and Euler V2 runs unchanged, so the reverts, the gas and the events your frontend sees are the real ones. There is no JavaScript mock of a contract anywhere in the project.
+
+**Zero infrastructure.** The chain lives in a Web Worker on the page. That means a Vercel preview, a Storybook, a Playwright run or a live demo has nothing to deploy and no RPC quota to worry about, and it behaves the same every time, even offline.
+
+**Injected like a wallet extension.** Your dapp discovers "Terrarium Wallet" through EIP-6963, the standard wallets use to announce themselves, and talks to it exactly as it would talk to MetaMask. Your `src/` never imports the simulator, and the production bundle contains not one byte of it.
+
+**Break things on purpose.** You can crash an oracle, drain a pool, make the wallet reject or stall, delay the receipts, move time forward, snapshot and revert, let bots trade around the user, or take the indexer down, all from a scenario file or a button.
+
+**Record mainnet at a block, replay offline.** `npx terrarium record --chain 1 --block N` captures every byte a session touches into a fixture, and the scenario restores that fixture later with the network unplugged.
+
+**Subgraphs and APIs answered from the chain.** When the dapp calls `fetch` on its indexer or its price API, the scenario answers from the chain running in the page, so the off-chain data always agrees with the pool the user is clicking on.
 
 > [!NOTE]
 > Two things a local node cannot do: **hosted previews and CI with zero infrastructure**, and **a live demo mode of your real dapp** where visitors click through the production UI against real protocol contracts with fake money.
@@ -57,8 +62,9 @@ export default defineConfig({
   worker: { format: 'es' },
 });
 ```
-Then write `terrarium.scenario.ts` (what the chain looks like when the page loads; a list of them puts a selector in the dev bar) and connect to "Terrarium Wallet" in your
-own UI. The [tutorial](docs/tutorial-new-protocol.md) takes you through it; the packages are
+Then write `terrarium.scenario.ts`, which describes what the chain looks like when the page loads, and connect to "Terrarium
+Wallet" in your own UI. A file can export a list of scenarios, and the dev bar grows a selector for them (see the
+[cookbook](docs/cookbook.md#26-several-scenarios)). The [tutorial](docs/tutorial-new-protocol.md) takes you through it; the packages are
 [`@terrariumlabs/core`](https://www.npmjs.com/package/@terrariumlabs/core) (engine, scenario runtime, Vite plugin, CLI),
 [`@terrariumlabs/evm`](https://www.npmjs.com/package/@terrariumlabs/evm) (revm in wasm) and
 [`@terrariumlabs/react`](https://www.npmjs.com/package/@terrariumlabs/react) (Next.js, Storybook).
@@ -68,13 +74,19 @@ own UI. The [tutorial](docs/tutorial-new-protocol.md) takes you through it; the 
 npm install            # Node 22+. No Rust needed: the wasm engine ships prebuilt in packages/terrarium-evm/pkg
 npm run dev            # http://localhost:5173 → "Connect wallet" → "Terrarium Wallet"
 ```
-Add liquidity, swap, remove liquidity through the real router. Click the leaf at the bottom right for the dev bar (Frogpond
-starts with it collapsed; `terrarium({ devBar: 'hidden' })` in `vite.config.ts`). In the dark bar: mine blocks, shift
-time, switch to 3 s blocks, snapshot and revert (chain **and** UI history come back), turn on **Pond life** (bot
-frogs trade against you, one fades your swaps), make the wallet **reject** the next signature, answer **slowly**, or
-deliver receipts **late**, take the dapp's **indexer down** or put it three blocks **behind** (the Uniswap V2 subgraph
-the dapp queries is answered from the chain in the page). Reload the page: the chain is still there (IndexedDB, inside
-a Worker). **Reset pond** wipes it and redeploys.
+Add liquidity, swap and remove liquidity through the real router. Then click the leaf at the bottom right to open the dev bar.
+Frogpond starts with it collapsed, which is the `terrarium({ devBar: 'hidden' })` option in `vite.config.ts`.
+
+The bar is where you break things on purpose. Pick a scenario from the selector on the left: the pond as it opens, the same
+pond after a whale dumped 40M PEPE into it, or one whose indexer is down from the first request. Each scenario keeps its own
+chain, and the choice survives reloads. Mine a block, move the clock forward by a minute, an hour, a day or a week and watch
+the status turn yellow with the offset, switch to a block every 3 seconds to see pending states, take a snapshot and revert
+to it (the chain and the UI's history both come back). Turn on **Pond life** and three bot frogs trade against you, one of
+them fading every swap you make. Make the wallet reject the next signature, answer slowly, or deliver receipts late. Take the
+dapp's indexer down or put it three blocks behind: the Uniswap V2 subgraph the dapp queries is answered from the chain in
+the page. Open **Transactions** for a block explorer of everything that happened, with each call, event and revert decoded
+and every address named. Reload the page and the chain is still there, persisted in IndexedDB inside a Worker. **Reset**,
+clicked twice, wipes this scenario's chain and boots it again from scratch.
 
 ## 🧪 Examples
 | example | what | run |
@@ -82,8 +94,9 @@ a Worker). **Reset pond** wipes it and redeploys.
 | [examples/aave](examples/aave/README.md) | Aave V3 mainnet Pool, aTokens, oracle: supply, borrow, health factor vs the UI's math, interest, a price shock via a feed installed at the Chainlink address | `npm run example:aave` |
 | [examples/euler](examples/euler/README.md) | Euler V2 mainnet vaults + EVC: deposit, enable collateral/controller, borrow, risk-adjusted liquidity, oracle staleness after time travel | `npm run example:euler` |
 
-Each is a recorded mainnet fork (`record.mjs` → `fixtures/*.json`, ≈0.5 MB) restored offline: no RPC at run time, and any
-read the fixture cannot answer is reported instead of fetched. `npm run test:examples` replays both.
+Each example is a recorded mainnet fork: its `record.mjs` writes a fixture of about 0.5 MB into `fixtures/*.json`, and the
+scenario restores that fixture offline. Nothing talks to an RPC at run time, and any read the fixture cannot answer is
+reported instead of fetched. `npm run test:examples` replays both.
 
 ## 🕹️ What you can put a frontend through
 Every one of these is a scenario or a dev-bar button, on the real contracts, with no infrastructure. The primitives are
@@ -208,12 +221,12 @@ npm run test:uniswap   # real Uniswap V2 in the Terrarium vs Anvil: tx hashes, r
 npm run e2e:install    # once: Chromium for Playwright
 npm run e2e            # plain dapp build (VITE_TERRARIUM=off) + injected Terrarium, the whole flow in headless Chromium
 npm run test:fork:record   # re-record the fork fixture against mainnet (needs network); record:aave / record:euler likewise
-npm run build:wasm     # rebuild the wasm engine (Rust: rustup target add wasm32-unknown-unknown, cargo install wasm-bindgen-cli)
+npm run build:wasm     # rebuild the wasm engine (Rust: rustup target add wasm32-unknown-unknown, cargo install wasm-bindgen-cli, brew install binaryen)
 ```
 The e2e covers: connect via the picker, approve + add liquidity, a deposit with no funds (the real router's
 `TransferHelper: TRANSFER_FROM_FAILED`, decoded), the wallet rejecting a signature (4001), a 2 s wallet delay with a
 visible pending state, swaps both ways, the subgraph panel listing them and surviving an indexer outage (HTTP 503 from
-the dev bar), snapshot → swap → revert, LP approval + remove, reload, and Pond life. It is also
+the dev bar), a snapshot followed by a swap and a revert, LP approval and removal, a reload, and Pond life. It is also
 the only place the dev bar, the injected wallet and IndexedDB persistence run for real; the unit suite covers everything
 that has a Node equivalent.
 
@@ -225,7 +238,7 @@ const sim = await createTerrarium({
   persist: { storage: indexedDBStorage('my-dapp'), key: 'scenario' },
   seed: 42,                          // deterministic actors
   clock: () => fixedSeconds,         // deterministic block timestamps (tests)
-  gasEstimation: 'fast',             // skip geth-style estimation in CI
+  gasEstimation: 'fast',             // skip gas estimation in CI (normally reth's search, run inside the wasm)
   wallet: { latencyMs: 800 },        // a wallet that behaves like a wallet
 });
 await sim.deal(USDC, user, 5_000n * 10n ** 6n);          // fake balance on any ERC20, proxies included
@@ -238,32 +251,38 @@ Fork a live chain instead of starting empty: `createTerrarium({ chainId: 1, fork
 remote read is recorded, so `sim.dumpState()` is an offline fixture (`test/fork-record.mjs` / `test/fork-offline.mjs`).
 
 ## 🏎️ The engine and its speed
-Execution is revm 43 compiled to WebAssembly (`packages/terrarium-evm`, 1.5 MB wasm, no C dependencies), verified byte
+Execution is revm 43 compiled to WebAssembly (`packages/terrarium-evm`, 1.29 MB wasm, no C dependencies), verified byte
 for byte against Anvil by `npm run test:uniswap`:
 
 | | 14-tx Uniswap scenario incl. 14 gas estimations |
 |---|---|
-| Terrarium (revm in wasm, in Node) | ≈135 ms (≈35 ms inside the wasm) |
-| Anvil, native, for comparison | ≈75 ms |
+| Terrarium (revm in wasm, in Node) | ≈110 ms (≈25 ms inside the wasm; gas estimation included, run inside the wasm too) |
+| Anvil, native, for comparison | ≈75–100 ms |
 
 The wasm only executes; state, checkpoints, blocks, receipts, persistence and fork recording are JavaScript around it.
 revm reads state through a synchronous, checkpoint-aware mirror; anything the mirror has never seen is zero (local chain)
 or fetched, recorded and re-run (fork mode), so the same code path serves both. Rebuild the wasm with
-`npm run build:wasm` (needs `rustup target add wasm32-unknown-unknown` and `wasm-bindgen-cli`). The `@ethereumjs/vm`
+`npm run build:wasm` (needs `rustup target add wasm32-unknown-unknown`, `wasm-bindgen-cli` and binaryen's `wasm-opt`). The `@ethereumjs/vm`
 engine that used to be the reference was removed in 0.3; the remaining `@ethereumjs/*` packages provide the state trie,
 RLP, transactions and block headers, not execution.
 
 ## 🔍 Two things a real chain hides that this one will show you
-- **Deadlines.** Derive them from the `pending` block (`getBlock({ blockTag: 'pending' })`), not from `latest` and not
-  from `Date.now()`. On an idle Terrarium the latest block can be hours old; with the dev bar the chain clock can be
-  ahead of the wall clock. The real Uniswap router answered `EXPIRED` to a deadline built from `latest`.
-- **Wallet errors.** viem retries "unknown" RPC errors three times with backoff. A provider that throws a plain object
-  for a revert costs a second per failed estimate; the Terrarium's errors extend viem's `BaseError` for that reason.
+The first is **deadlines**. Derive them from the `pending` block (`getBlock({ blockTag: 'pending' })`), not from `latest`
+and not from `Date.now()`. On an idle Terrarium the latest block can be hours old, and with the dev bar the chain clock can
+be ahead of the wall clock. The real Uniswap router answered `EXPIRED` to a deadline built from `latest`, which is exactly
+what it would do on an idle real chain.
+
+The second is **wallet errors**. viem retries "unknown" RPC errors three times with backoff, so a provider that throws a
+plain object for a revert costs a full second per failed estimate. The Terrarium's errors extend viem's `BaseError` for
+that reason.
 
 ## ⚠️ Honest limits
-- Fork mode has no local state trie (remote state is unknown), so forked chains report a placeholder `stateRoot`
-  (configurable). Everything else in the header is real and verifiable in every mode.
-- No JavaScript-mocked contracts. You cannot tell the chain "return 1800 when `latestAnswer()` is called"; every call runs
-  bytecode. To fake a contract, install a small Solidity stand-in at the real address with `anvil_setCode` and set its
-  variables with `setState`, as the Aave example does with its price feed.
-- `eth_subscribe` pushes new heads only (as EIP-1193 `message` events); no log subscriptions. viem polls, which works.
+Fork mode has no local state trie, because the remote state is unknown, so forked chains report a placeholder `stateRoot`
+(configurable). Everything else in the header is real and verifiable in every mode.
+
+There are no JavaScript-mocked contracts. You cannot tell the chain "return 1800 when `latestAnswer()` is called", because
+every call runs bytecode. To fake a contract, install a small Solidity stand-in at the real address with `anvil_setCode`
+and set its variables with `setState`, as the Aave example does with its price feed.
+
+`eth_subscribe` pushes new heads only, as EIP-1193 `message` events, and there are no log subscriptions. viem polls for
+logs, which works.

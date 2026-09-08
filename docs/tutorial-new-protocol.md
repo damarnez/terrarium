@@ -78,19 +78,24 @@ my-dapp/
 ├── record.mjs                    B only: the script that produced fixtures/my-fork.json
 ├── test.mjs / e2e/               tests that drive the chain offline: Node against the engine, Playwright against the page
 ├── vite.config.ts                + the terrarium() plugin
-└── .terrarium/                   two entry files the plugin generates; gitignore it
+└── .terrarium/                   the entry files the plugin generates; gitignore it
 ```
 
-- **`.env`** holds the same things it would for mainnet: a chain id, the addresses the dapp talks to, the URL of its
-  subgraph or API. Fixed mainnet addresses for a forked protocol; deterministic addresses for contracts your scenario
-  deploys; the real indexer URL, which the scenario intercepts.
-- **`src/`** is your product. It discovers wallets with EIP-6963 and uses whatever announces itself. Nothing in it
-  imports or mentions the Terrarium. The moment it does, you are testing something other than what you ship.
-- **`contracts/`** exists only if the simulation needs something that does *not* exist on the real chain: a demo token,
-  a stand-in oracle. Most forked-protocol projects have one small file here or none at all.
-- **`fixtures/`** is where the real chain's bytes live, as JSON, committed. Two kinds, explained next.
-- **`terrarium.scenario.ts`** turns fixtures and generated contracts into a chain: install code, deploy, seed, define the
-  other actors, expose buttons. It runs in the Worker on every page load.
+The **`.env`** file holds the same things it would for mainnet: a chain id, the addresses the dapp talks to, and the
+URL of its subgraph or API. For a forked protocol those are the fixed mainnet addresses. For contracts your scenario
+deploys they are deterministic addresses. The indexer URL is the real one, which the scenario intercepts.
+
+**`src/`** is your product. It discovers wallets with EIP-6963 and uses whatever announces itself. Nothing in it
+imports or mentions the Terrarium, and the moment it does, you are testing something other than what you ship.
+
+**`contracts/`** exists only if the simulation needs something that does *not* exist on the real chain, such as a demo
+token or a stand-in oracle. Most forked-protocol projects have one small file here or none at all.
+
+**`fixtures/`** is where the real chain's bytes live, as JSON, committed to your repo. There are two kinds of fixture,
+and the next section explains them.
+
+**`terrarium.scenario.ts`** turns fixtures and generated contracts into a chain. It installs code, deploys, seeds,
+defines the other actors and exposes buttons. It runs in the Worker on every page load.
 
 ## 🧬 Where the bytes come from
 
@@ -215,7 +220,8 @@ npx terrarium fetch-code router=0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D facto
 Add `--block N` to read the code as it was at a specific block (an upgradeable proxy's implementation changes over
 time; a full node serves only its last ≈128 blocks, an archive node any). `--chain` is a guard: the command refuses if
 the node serves another chain, so a wrong RPC URL fails loudly instead of producing a fixture of the wrong network.
-The fixture is `{ chainId, blockNumber, contracts: { router: { address, code }, … } }`.
+The fixture is `{ chainId, blockNumber, contracts: { router: { address, code }, … } }`. Any fixture may also carry `names` and `abis`
+maps keyed by address; `install` registers them, so the dev bar's transaction explorer names those contracts and decodes their calls.
 
 > [!WARNING]
 > **Keep the mainnet addresses.** Contracts have each other's addresses baked in as immutables: the router knows its
@@ -223,10 +229,11 @@ factory and WETH, the factory derives pair addresses from its own address and in
 stop finding it. The Uniswap V2 fixture that ships with the package (`@terrariumlabs/core/fixtures/uniswap-v2-mainnet.json`) was
 made exactly this way.
 
-- `ctx.install(fixture)` writes code at each address only where there is none yet, so it is safe on every boot.
-- A contract whose constructor set storage (an `owner`, an `initialized` flag, a fee recipient) arrives blank. Call its
-  own `initialize` if it has one, or write the variables: `ctx.sim.setState(address, storageLayout, { owner: … })` with
-  a layout, or `ctx.rpc('anvil_setStorageAt', [address, slot, value])` when you know the slot.
+In the scenario, `ctx.install(fixture)` writes code at each address only where there is none yet, so it is safe to
+call on every boot. One thing to keep in mind: a contract whose constructor set storage (an `owner`, an `initialized`
+flag, a fee recipient) arrives blank. Call its own `initialize` if it has one, or write the variables yourself, either
+with `ctx.sim.setState(address, storageLayout, { owner: … })` when you have a storage layout, or with
+`ctx.rpc('anvil_setStorageAt', [address, slot, value])` when you know the slot.
 
 ### B. Record the state at a block
 
@@ -281,22 +288,42 @@ over snapshots and what stays in the fixture.
 > [!TIP]
 > **What makes a fixture complete.** At replay time the network is forbidden: a read the fixture cannot answer is a
 *miss*, shown in the dev bar as `N MISSES`, listed in `sim.offlineMisses`, and never fetched. So the recorder must take
-every path the UI and your tests will take:
+every path the UI and your tests will take.
 
-- the view calls the UI polls, including for tokens the user does not hold yet and positions that do not exist yet;
-- every write, with amounts at least as large as the tests will use (larger amounts can touch more slots);
-- time passing, at least as far as the tests travel: interest indexes and oracle heartbeats read slots idle state does not;
-- `sim.deal` for every token the scenario will `deal` later (the balance slot is found by watching SLOADs; the probe's
-  reads must be recorded too);
-- the storage slots of any oracle feed you plan to replace, so the scenario can put the original back.
+Concretely, the recorder has to make the view calls the UI polls, including for tokens the user does not hold yet and
+positions that do not exist yet. It has to perform every write, with amounts at least as large as the tests will use,
+because larger amounts can touch more slots. It has to let time pass at least as far as the tests travel, since interest
+indexes and oracle heartbeats read slots that idle state does not. It has to call `sim.deal` for every token the
+scenario will `deal` later, because the balance slot is found by watching SLOADs and the probe's reads must be recorded
+too. And it has to read the storage slots of any oracle feed you plan to replace, so the scenario can put the original
+back.
 
 When in doubt, over-record; a slot costs about 150 bytes. Set `VITE_FORK_RPC` later to run the same scenario online
 and it will fetch (and tell you about) whatever the fixture lacks.
 
+### C. Import what you deployed on Anvil
+
+When the protocol is yours and you already deploy it with your own tooling, skip the fixtures above: deploy against a running
+Anvil with `forge script --broadcast` or `hardhat deploy`, then take everything Anvil holds as one fixture.
+
+```bash
+npx terrarium import-anvil --rpc http://127.0.0.1:8545 --out fixtures/protocol.json \
+  --broadcast broadcast/Deploy.s.sol/31337/run-latest.json --artifacts out
+```
+
+The fixture holds every account's code, storage, nonce and balance. `--broadcast` adds the contract names from Foundry's record
+of the deployment and `--artifacts` adds their ABIs, so the dev bar's explorer shows your deployment decoded and named without a
+line of scenario code. `ctx.install(protocol)` puts it on the chain, idempotently: contracts land once, plain accounts only on a
+fresh chain. Anvil's ten test accounts are the Terrarium's own, so deploying from account #0 means "You" own the protocol in the
+page. The details are in the [cookbook](cookbook.md#3-code-at-an-address-stand-ins-and-upgrades).
+
 ## 2. Write the scenario
 
 `terrarium.scenario.ts` in your project root. It runs inside the Worker every time the page loads, before your dapp
-connects. It can read `import.meta.env.VITE_*`, so it shares addresses with the dapp's `.env`.
+connects. It can read `import.meta.env.VITE_*`, so it shares addresses with the dapp's `.env`. Give it a `name` and a
+`description`, and once you have variants worth switching between (the protocol as it opens, after a crash, with its indexer
+down) export a list with `defineScenarios([...])`: the dev bar grows a selector, each scenario keeps its own persisted chain,
+and the choice survives reloads ([cookbook recipe 26](cookbook.md#26-several-scenarios)).
 
 ### A. A bootstrapped protocol
 
@@ -339,17 +366,20 @@ export default defineScenario({
 });
 ```
 
-What matters here:
+Three things matter here.
 
-- **Deploy once, on a fresh chain.** `ctx.fresh` is true when the chain has no blocks (first boot, or after the dev
-  bar's Reset). Every later boot restores the chain from IndexedDB and skips the block.
-- **Addresses are deterministic** (deployer address + nonce), so the dapp's `.env` can hold them like mainnet
-  addresses. Deploy your contracts first, from a fixed account, in a fixed order; the `getContractAddress` check
-  above turns a mistake into a message instead of a dapp that silently reads an empty address.
-- **Actors** are other users, keepers, arbitrageurs: `every` (ms) or `on` (a log filter, or a function of `ctx` when it
-  depends on setup). They are toggled together in the dev bar, off by default, and their on/off state persists. Send
-  their transactions with `ctx.sim.sendAs(address, tx)` (impersonation, no key needed) or `ctx.wallet(account)`.
-  Randomness comes from `ctx.random()` so a seeded scenario replays identically.
+**Deploy once, on a fresh chain.** `ctx.fresh` is true when the chain has no blocks, which means the first boot or the
+moment after the dev bar's Reset. Every later boot restores the chain from IndexedDB and skips that block of code.
+
+**Addresses are deterministic.** They derive from the deployer address and its nonce, so the dapp's `.env` can hold
+them like mainnet addresses. Deploy your contracts first, from a fixed account, in a fixed order. The
+`getContractAddress` check above turns a mistake into a message instead of a dapp that silently reads an empty address.
+
+**Actors are the other people on the chain**: other users, keepers, arbitrageurs. An actor runs `every` so many
+milliseconds, or `on` a log filter (a function of `ctx` when the filter depends on setup). They are toggled together in
+the dev bar, they are off by default, and their on/off state persists. Send their transactions with
+`ctx.sim.sendAs(address, tx)`, which impersonates an address without needing its key, or with `ctx.wallet(account)`.
+Randomness comes from `ctx.random()`, so a seeded scenario replays identically.
 
 ### B. A forked protocol
 
@@ -388,23 +418,27 @@ export default defineScenario({
 });
 ```
 
-What matters here:
+Five things matter here.
 
-- **`fork` + `restore` + `offline`.** The fixture's dump is the baseline; `offline: true` turns every read the fixture
-  cannot answer into an error and a `MISSES` counter instead of a network call. Keep `VITE_FORK_RPC` as an escape
-  hatch: set it and the same scenario forks online, fetching whatever the fixture lacks (and telling you what to
-  record next).
-- **`firstBoot`, not `fresh`.** A forked chain starts at block N + 1, so `ctx.fresh` (block 0) is never true. `ctx.firstBoot`
-  is true when nothing is persisted yet, even though the fixture was restored: that is when you `deal` the user their
-  starting balances on top of the recording.
-- **Key `persist` by the fixture's block.** A persisted chain wins over `restore`; without the block number in the key a
-  re-recorded fixture never loads.
-- **`clock: 'recording'`.** The wall clock re-based to the fixture's last block, so chain time continues from the
-  recorded moment however long ago you recorded. Oracles with staleness checks keep working; interest accrues from where
-  it was. The dev bar's +1 hour still moves time, and a forked oracle reverting with `PriceOracle_TooStale` after that is
-  the real failure mode, worth seeing.
-- **`methods` + `controls`** are how scenario-specific knobs reach the dev bar and tests: an RPC method that mutates
-  EVM state (never one that rewrites responses), and a button that calls it.
+**`fork`, `restore` and `offline` work together.** The fixture's dump is the baseline, and `offline: true` turns every
+read the fixture cannot answer into an error and a `MISSES` counter instead of a network call. Keep `VITE_FORK_RPC` as
+an escape hatch: set it and the same scenario forks online, fetching whatever the fixture lacks and telling you what to
+record next.
+
+**Use `firstBoot`, not `fresh`.** A forked chain starts at block N + 1, so `ctx.fresh` (block 0) is never true.
+`ctx.firstBoot` is true when nothing is persisted yet, even though the fixture was restored. That is the moment to
+`deal` the user their starting balances on top of the recording.
+
+**Key `persist` by the fixture's block.** A persisted chain wins over `restore`, so without the block number in the key
+a re-recorded fixture never loads.
+
+**`clock: 'recording'` keeps time believable.** It re-bases the wall clock to the fixture's last block, so chain time
+continues from the recorded moment however long ago you recorded. Oracles with staleness checks keep working and
+interest accrues from where it was. The dev bar's +1 hour still moves time, and a forked oracle reverting with
+`PriceOracle_TooStale` after that is the real failure mode, worth seeing.
+
+**`methods` and `controls` connect the scenario to the dev bar and to tests.** A method is an RPC method that mutates
+EVM state (never one that rewrites responses), and a control is a button that calls it.
 
 ### What `ctx` gives you
 
@@ -441,7 +475,7 @@ export default defineConfig({
 });
 ```
 
-Add `.terrarium/` to `.gitignore` (the plugin generates two small entry files there).
+Add `.terrarium/` to `.gitignore` (the plugin generates its small entry files there).
 
 > [!NOTE]
 > Not on Vite? Next.js, Remix, CRA and Storybook mount the same thing from a React component (`@terrariumlabs/react`), and any
@@ -456,16 +490,19 @@ npm run dev
 Your existing connect modal lists **Terrarium Wallet**; connect, and the dapp is talking to the chain in the Worker.
 The dark bar at the bottom is the dev bar:
 
-| button | what it does |
+| control | what it does |
 |---|---|
-| block counter, engine, fork | live status: chain id, head block, `revm/wasm`, fork block and `MISSES` if any, "N local blocks restored" after a reload |
-| **Mine a block**, **+1 hour** | one empty block; `evm_increaseTime(3600)` + a block. Interest accrues, deadlines expire, oracles go stale |
+| the scenario selector | present when your file exports a list of scenarios: switching stores the choice and reloads the page into it, and each scenario keeps its own chain |
+| block, chain, clock | live status: the head block, the chain id and the chain's clock, which turns yellow with its offset once you have moved time (deadlines and oracles see this clock, not yours); fork block and `MISSES` if any, "N blocks restored" after a reload |
+| **Mine a block**, **Time ▾** | one empty block; or move the clock forward a minute, an hour, a day or a week and seal a block at the new time. Interest accrues, deadlines expire, oracles go stale |
 | **Blocks: instant / every 3s** | a block per transaction, or interval mining so you can watch pending states |
-| **Snapshot / Revert** | `evm_snapshot` / `evm_revert`: state, blocks, receipts, logs, the clock and the UI's history all come back |
+| **Snapshot / Revert to block N** | `evm_snapshot` / `evm_revert`: state, blocks, receipts, logs, the clock and the UI's history all come back |
 | **Actors** (your `actorsLabel`) | start and stop the scenario's actors; persisted |
 | **Reject next tx**, **Wallet: 2s delay**, **Receipts: 3s late** | the wallet says no (EIP-1193 code 4001), answers slowly, or the node lags behind the block |
 | your `controls` | whatever the scenario declared |
-| **Reset** | wipe the persisted chain and reload: `setup` runs on a fresh chain again |
+| **Transactions** | the transaction explorer: every transaction on the chain, newest first, with its receipt, the decoded call, every event and the revert reason, addresses named. A text filter, an all / mine / failed selector, a click on a hash copies it. Give the scenario `abis` and `ctx.label(address, name, abi)` and your own contracts decode too; tokens, WETH and Uniswap V2 decode on their own |
+| **Reset** | two clicks: wipe this scenario's persisted chain and reload, so `setup` runs on a fresh chain again. Other scenarios keep theirs |
+| **Hide** | collapse the bar to a leaf at the bottom right (`Alt+Shift+T` too); `Alt+Shift+X` toggles the explorer |
 
 Nothing in `src/` changes. `VITE_TERRARIUM=off` (in `.env` or the environment) builds and serves the plain dapp,
 with not one byte of the Terrarium in it.
@@ -512,7 +549,7 @@ ok &&= Math.abs(contractHf - clientHf) < 1e-6 && sim.offlineMisses.length === 0;
 `npm run test:examples` runs both examples this way. A `clock` that returns the fixture's last block timestamp
 (`fixture.timestamp` for a `terrarium record` fixture, or `fixture.dump.chain.blocks.at(-1).timestamp`) is the Node
 equivalent of `clock: 'recording'`. For the engine's own behaviour (cheatcodes, snapshots, filters, persistence, fork
-misses) see `test/unit/*.test.mjs`: sixty small tests on the same primitives, a good place to copy from.
+misses) see `test/unit/*.test.mjs`: eighty small tests on the same primitives, a good place to copy from.
 
 ## 5. Off-chain data: the subgraph and the APIs
 
@@ -547,31 +584,40 @@ exactly this for the Uniswap V2 subgraph. The whole story: [http-and-subgraphs.m
 ## 💡 Scenarios worth writing
 
 The README's table of use cases lists what frontends usually get wrong; each row is a few lines of scenario. The recipe
-is always the same: put the chain in the interesting state with the primitives above, then look at the UI.
+is always the same: put the chain in the interesting state with the primitives above, then look at the UI. Here are
+the ones that pay off most often.
 
-- **Preloaded liquidation.** In `setup`, after the fixture: `deal` collateral, supply, borrow to the limit through the
-  protocol (real transactions, so indexes and events are right), then a control that moves the oracle. Or an actor
-  that waits for the price move and liquidates the user from another account.
-- **Bad oracle.** The fixed feed pattern with a zero, negative or absurd `answer`; a `roundId` and timestamp hours in
-  the past; or just **+1 hour** on a fork whose adapters check staleness.
-- **Illiquidity.** Impersonate a whale (any address works with `sendAs`; `deal` it the tokens) and borrow or withdraw
-  the pool dry, then let the user try. On a DEX, have the treasury remove most of the liquidity.
-- **Front-run / slippage.** An actor with `on: { address: pair, topics: [SWAP] }` that trades in the block after every
-  user swap, or an `every` actor that moves the price every few seconds.
-- **Parameter changes.** `setState` on the protocol's configuration by storage layout, or impersonate the admin and call
-  the real setter; then check what the UI cached.
-- **The human side.** Reject, delay and lag from the dev bar or `terrarium_setWallet`, in the middle of a multi-step flow.
-- **The indexer lies.** An `http` route that answers the subgraph three blocks behind the head, or with a 503, while the
-  chain moves on: does the UI show the lag, or does the user's own swap vanish from "recent activity"?
+**A preloaded liquidation.** In `setup`, after the fixture loads, `deal` the user collateral, supply it, and borrow to
+the limit through the protocol itself, with real transactions so indexes and events are right. Then add a control that
+moves the oracle. Or write an actor that waits for the price move and liquidates the user from another account.
+
+**A bad oracle.** Use the fixed feed pattern with a zero, negative or absurd `answer`, or with a `roundId` and
+timestamp hours in the past. Or simply press **+1 hour** on a fork whose adapters check staleness.
+
+**Illiquidity.** Impersonate a whale (any address works with `sendAs`, and `deal` gives it the tokens) and borrow or
+withdraw the pool dry, then let the user try. On a DEX, have the treasury remove most of the liquidity.
+
+**Front-running and slippage.** Write an actor with `on: { address: pair, topics: [SWAP] }` that trades in the block
+after every user swap, or an `every` actor that moves the price every few seconds.
+
+**Parameter changes.** Call `setState` on the protocol's configuration by storage layout, or impersonate the admin and
+call the real setter. Then check what the UI had cached.
+
+**The human side.** Reject, delay and lag the wallet from the dev bar or through `terrarium_setWallet`, in the middle
+of a multi-step flow.
+
+**An indexer that lies.** Write an `http` route that answers the subgraph three blocks behind the head, or with a 503,
+while the chain moves on. Does the UI show the lag, or does the user's own swap vanish from "recent activity"?
 
 ## 📏 Two rules for the dapp side
 
-- **Deadlines and anything time-based come from the pending block**: `getBlock({ blockTag: 'pending' })`. `latest` can
-  be hours old on an idle chain (the real Uniswap router answered `EXPIRED` after an idle hour) and `Date.now()` is wrong
-  once the dev bar shifts the clock. This is also the right thing to do against a real node.
-- **Your dapp must not know the Terrarium exists.** Configure it with a chain id and addresses, discover wallets with
-  EIP-6963, and keep every test hook on the Terrarium side: `window.terrarium`, `terrarium_*` methods, the dev bar.
-  The moment `src/` special-cases the Terrarium, you are testing something other than what you ship.
+**Deadlines and anything time-based come from the pending block**, through `getBlock({ blockTag: 'pending' })`. The
+`latest` block can be hours old on an idle chain (the real Uniswap router answered `EXPIRED` after an idle hour), and
+`Date.now()` is wrong once the dev bar shifts the clock. This is also the right thing to do against a real node.
+
+**Your dapp must not know the Terrarium exists.** Configure it with a chain id and addresses, discover wallets with
+EIP-6963, and keep every test hook on the Terrarium side: `window.terrarium`, the `terrarium_*` methods, the dev bar.
+The moment `src/` special-cases the Terrarium, you are testing something other than what you ship.
 
 ## 🔢 Checking your numbers
 
@@ -605,8 +651,8 @@ DEX (router quote vs the constant-product formula vs the executed result) and pr
 
 ## 🔗 Where to look next
 
-- [cookbook.md](cookbook.md): every feature, one paste-able example.
-- [http-and-subgraphs.md](http-and-subgraphs.md): answering the dapp's APIs and subgraphs from the chain.
-- [api.md](api.md): every option, `sim` member, RPC method, scenario field, plugin option, CLI command and dev bar test id.
-- `terrarium.scenario.ts`, `examples/aave/`, `examples/euler/`: three finished scenarios, two recorders, two offline tests.
-- `e2e/frogpond.e2e.mjs`: the browser flow, end to end.
+The [cookbook](cookbook.md) has every feature as one paste-able example. [http-and-subgraphs.md](http-and-subgraphs.md)
+explains how to answer the dapp's APIs and subgraphs from the chain. The [API reference](api.md) lists every option,
+`sim` member, RPC method, scenario field, plugin option, CLI command and dev bar test id. For finished code, read
+`terrarium.scenario.ts`, `examples/aave/` and `examples/euler/`: three complete scenarios, two recorders and two offline
+tests. And `e2e/frogpond.e2e.mjs` shows the browser flow end to end.

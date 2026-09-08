@@ -2,7 +2,7 @@
 
 ← [Docs index](README.md) · [Tutorial](tutorial-new-protocol.md) · [Cookbook](cookbook.md) · [API reference](api.md)
 
-**Contents:** [Which path](#-which-path) · [Vite plugin](#-vite-plugin-recommended) · [React component](#%EF%B8%8F-react-component-terrariumreact) ·
+**Contents:** [Which path](#-which-path) · [Vite plugin](#-vite-plugin-recommended) · [React component](#%EF%B8%8F-react-component-terrariumlabsreact) ·
 [Next.js](#-nextjs) · [Storybook](#-storybook) · [Script tag](#-a-plain-script-tag) · [Checking production](#-checking-the-production-bundle)
 
 There are four ways to get the Terrarium (the chain in a Worker, the EIP-6963 wallet, the dev bar) onto a page. They all
@@ -15,7 +15,7 @@ your source has to mention it.
 |---|---|---|
 | a Vite app | the [Vite plugin](#-vite-plugin-recommended) | **no**: one `<script>` injected into `index.html` |
 | a Vite app that wants a React mount | the [Vite plugin](#-vite-plugin-recommended) with `mount: 'react'` | one import of `virtual:terrarium/react`, null when off |
-| Next.js, Remix, CRA, any React app not on Vite | [`@terrariumlabs/react`](#%EF%B8%8F-react-component-terrariumreact) | yes, behind a build-time guard |
+| Next.js, Remix, CRA, any React app not on Vite | [`@terrariumlabs/react`](#%EF%B8%8F-react-component-terrariumlabsreact) | yes, behind a build-time guard |
 | a Storybook | [`@terrariumlabs/react` in a decorator](#-storybook) or the script tag | in the Storybook config, not the app |
 | a built site, someone else's dapp, a Playwright test | [a script tag](#-a-plain-script-tag) with `npx terrarium build` | **no** |
 
@@ -57,7 +57,7 @@ The plugin writes `.terrarium/{inject,worker}.ts` (gitignore it) and injects one
 `VITE_TERRARIUM=off` in `.env` or the environment builds and serves the plain dapp. The [tutorial's step 3](tutorial-new-protocol.md#3-point-your-dapp-at-the-addresses-and-inject-the-terrarium) is the full walkthrough.
 
 A React app on Vite that would rather mount the Terrarium from its tree (a component with context, StrictMode-safe, unmounted
-with the tree) than through a script tag does not need the [React component](#%EF%B8%8F-react-component-terrariumreact) path
+with the tree) than through a script tag does not need the [React component](#%EF%B8%8F-react-component-terrariumlabsreact) path
 and its guard: the plugin generates the mount.
 
 ```ts

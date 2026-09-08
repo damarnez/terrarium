@@ -214,7 +214,7 @@ Same knobs as the dev bar's **Reject next tx / Wallet: 2s delay / Receipts: 3s l
 
 ```ts
 gasEstimation: 'fast'                                                             // in defineScenario or createTerrarium: no estimation, block gas limit (CI speed)
-const gas = await ctx.pub.estimateContractGas({ address: ROUTER, abi: routerAbi, functionName: 'swapExactETHForTokens', args, value, account: user });   // geth-style: full run against the pending block, 64/63 probe, binary search
+const gas = await ctx.pub.estimateContractGas({ address: ROUTER, abi: routerAbi, functionName: 'swapExactETHForTokens', args, value, account: user });   // the search the reth node uses, run inside the wasm against the pending block
 ```
 
 A transaction a node would refuse (bad nonce, insufficient funds) gets a **failed receipt** with `droppedReason` instead of
@@ -243,7 +243,9 @@ async setup(ctx) {
 
 Reload the page: the chain, receipts and history are back. `terrarium_reset()` (dev bar **Reset**) stops actors, clears
 the origin's IndexedDB store and the dev bar reloads; `setup` then runs on a fresh chain. In Node, `persist` takes any
-`{ getItem, setItem }` store and `sim.dumpState()` / `loadState(dump)` are the primitives.
+`{ getItem, setItem, removeItem }` store and `sim.dumpState()` / `loadState(dump)` are the primitives. Saves are incremental: blocks go
+into chunks of 64 under `<key>:b<i>` and only the chunks that changed are rewritten, so a save costs the same at block 3000 as at
+block 30. A value saved by a version before 0.7 (the whole dump under the key) still loads and is converted on its next save.
 
 ## 14. Forks: online, offline, recorded
 
@@ -299,6 +301,10 @@ Methods receive `ctx` then the params, are reachable through the provider (`rpc(
 outside the state lock, so they can call other RPC methods. They mutate EVM state; they never rewrite responses. The dev
 bar renders `controls` in order as `control-0`, `control-1`, … for tests.
 
+> [!TIP]
+> Since 0.5 a scenario file can export a list (recipe 26): each variant keeps its own chain and the dev bar switches between them,
+> which covers most of what this recipe hand-rolls. Keep reading for the general shape of a method that rebuilds the chain.
+
 A button that rebuilds the world (pick a use case, start from another fixture) resets the chain, and the dapp on top of
 it has to start over too. `ctx.reload()` asks the page to reload once the method has done its work; the dev bar's own
 Reset button does the same thing for its reset. Keep the choice somewhere Reset does not wipe (its own IndexedDB store,
@@ -306,7 +312,7 @@ not the chain's) and read it back in `setup()`:
 
 ```ts
 import { indexedDBStorage } from '@terrariumlabs/core';
-const settings = indexedDBStorage('my-dapp-terrarium');           // survives terrarium_reset, which clears the chain's store
+const settings = indexedDBStorage('my-dapp-terrarium');           // its own store: untouched by terrarium_reset, which removes only the chain's keys
 methods: {
   async terrarium_useCase(ctx, id: string) { await settings.setItem('useCase', id); await ctx.rpc('terrarium_reset'); ctx.reload(); },
 },
@@ -318,8 +324,9 @@ controls: [{ label: 'Use case: all in one vault', method: 'terrarium_useCase', p
 
 ```js
 const st = await rpc('terrarium_status');
-// { chainId, engine: 'revm', block: '0x…', accounts, actors, actorsLabel, hasActors, wallet: { rejectNext, latencyMs, receiptLagMs },
-//   controls, restoredFromPersistence, localBlocks, fork: null | { blockNumber, offline, misses }, http: { routes, hits }, ...status(ctx) }
+// { scenario, now: '0x…' (the chain clock), txs: { total, pending, failed }, chainId, engine: 'revm', block: '0x…', accounts, actors, actorsLabel,
+//   hasActors, wallet: { rejectNext, latencyMs, receiptLagMs }, controls, restoredFromPersistence, localBlocks,
+//   fork: null | { blockNumber, offline, misses }, http: { routes, hits }, ...status(ctx) }
 ```
 
 Put the addresses your scenario deployed or discovered in `status(ctx)`; tests read them instead of hard-coding.
@@ -397,7 +404,8 @@ The dev bar's **Transactions** button opens a panel listing every transaction on
 explorer: status, block, time, hash, method, from, to, value, gas, events. A row expands to the receipt, the decoded call and
 its arguments, the raw input, the revert reason and every event.
 
-Standard things decode with no configuration: ERC-20/721/1155/4626 transfers, approvals, deposits and withdrawals, WETH,
+Decoding tries an address's own ABI first (from `ctx.label` or the fixture that installed it), then the scenario's `abis`, then a built-in
+set, so two ABIs sharing a selector never fight. Standard things decode with no configuration: ERC-20/721/1155/4626 transfers, approvals, deposits and withdrawals, WETH,
 Uniswap V2 `Swap`/`Sync`/`Mint`/`Burn`, Ownable, proxies, OpenZeppelin's custom errors, `Error(string)` and `Panic`. Contracts
 installed from a fixture are named by their fixture keys. Contracts imported from an Anvil deployment with `--broadcast` and `--artifacts` (recipe 3) arrive named and with their ABIs.
 For the rest, name an address where you learn it, with its ABI:

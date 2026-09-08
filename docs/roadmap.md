@@ -12,7 +12,7 @@ If you pick one up, open with a note in HANDOFF.md so the next person knows.
 | 2 | [`npx terrarium serve`](#2-npx-terrarium-serve) | real wallets (MetaMask, Rabby) and CLI tools cannot connect to the chain | M |
 | 3 | [Tracing in the dev bar](#3-tracing-in-the-dev-bar) | the explorer shows receipt, decoded call, events and revert reason; "my transaction reverted" still has no call tree, no frame, no gas per call | L |
 | 4 | [Prague hardfork and the modern wallet surface](#4-prague-hardfork-and-the-modern-wallet-surface) | Cancun rules while mainnet is on Prague; no EIP-7702, no EIP-5792 batched calls; constant base fee | M |
-| 5 | [Boot and estimation speed](#5-boot-and-estimation-speed) | page load is dominated by wasm instantiation, restore and setup; estimation runs the tx many times | M |
+| 5 | [Boot and estimation speed](#5-boot-and-estimation-speed) | estimation is solved (reth's search inside the wasm) and the wasm compiles in milliseconds; what remains is timings in the status, a lazy state root and batched setup writes | M |
 | 6 | [`npx terrarium init`](#6-npx-terrarium-init-and-an-npm-release) | starting a new project is a manual copy from this repo (the npm release itself is done: `@terrariumlabs/core`, `@terrariumlabs/evm`, `@terrariumlabs/react`) | S |
 | 7 | [A typed `sim`](#7-a-typed-sim) | `ctx.sim` is `any`; no autocompletion where users spend their time | S |
 | 8 | [HTTP layer, one step further](#8-http-layer-one-step-further) | no latency / failure knobs for routes, no request log, every subgraph field is hand-written | M |
@@ -23,14 +23,19 @@ If you pick one up, open with a note in HANDOFF.md so the next person knows.
 
 Today: `fork: { url, blockNumber }` reads state lazily from any node and records every read; the Aave and Euler
 scenarios switch to it when `VITE_FORK_RPC` is set ([tutorial](tutorial-new-protocol.md#1-get-the-protocol-in),
-[cookbook §14](cookbook.md#14-forks-online-offline-recorded)). Missing:
+[cookbook §14](cookbook.md#14-forks-online-offline-recorded)). Four things are missing.
 
-- `blockNumber: 'latest'`, resolved at boot a few blocks back so a scenario can say "fork mainnet now".
-- The remote-read cache persisted in IndexedDB, so a reload does not refetch and public RPC rate limits stop mattering;
-  batched JSON-RPC for the state manager's `eth_getProof` / `eth_getStorageAt` calls.
-- A **Download fixture** button in the dev bar: click through the dapp online, press it, get the offline fixture that
-  replays the same session in CI. Most people would never write a recorder script again.
-- Browser realities: a CORS note per known public RPC, and a clear dev-bar message when the node refuses browser origins.
+A scenario should be able to say "fork mainnet now": `blockNumber: 'latest'`, resolved at boot a few blocks back.
+
+The remote-read cache should persist in IndexedDB, so a reload does not refetch and public RPC rate limits stop
+mattering. Alongside it, the state manager's `eth_getProof` and `eth_getStorageAt` calls should go out as batched
+JSON-RPC.
+
+A **Download fixture** button belongs in the dev bar: you click through the dapp online, press it, and get the offline
+fixture that replays the same session in CI. Most people would never write a recorder script again.
+
+Browser realities need covering too: a CORS note per known public RPC, and a clear dev-bar message when the node
+refuses browser origins.
 
 ## 2. `npx terrarium serve`
 
@@ -50,28 +55,38 @@ where frontend developers lose the most time today.
 
 ## 4. Prague hardfork and the modern wallet surface
 
-- Check that `hardfork: 'prague'` reaches revm (the engine passes the hardfork name as revm's spec string, so it may
-  already work), cover the BLS precompiles and EIP-7702 set-code transactions in the differential test, make it the default.
-- `wallet_sendCalls` / `wallet_getCallsStatus` / `wallet_getCapabilities` (EIP-5792) so dapps built for batched calls and
-  smart accounts can be tested, with a paymaster stub.
-- The real EIP-1559 base-fee formula per block from the previous block's gas used, instead of a constant until set.
-- Blob transactions (type 3) if a target dapp needs them; today they are not accepted.
-- Log subscriptions on `eth_subscribe` (only new heads are pushed now).
+First, check that `hardfork: 'prague'` reaches revm. The engine passes the hardfork name as revm's spec string, so it
+may already work. Then cover the BLS precompiles and EIP-7702 set-code transactions in the differential test, and make
+Prague the default.
+
+Dapps built for batched calls and smart accounts need `wallet_sendCalls`, `wallet_getCallsStatus` and
+`wallet_getCapabilities` (EIP-5792), with a paymaster stub so they can be tested.
+
+The base fee should follow the real EIP-1559 formula per block, computed from the previous block's gas used, instead of
+staying constant until someone sets it.
+
+Blob transactions (type 3) are not accepted today; add them if a target dapp needs them.
+
+`eth_subscribe` only pushes new heads now; log subscriptions would complete it.
 
 ## 5. Boot and estimation speed
 
-Measure first: add `timings` to `terrarium_status` (wasm instantiate, restore, `setup`, first block) and show them in the
-dev bar. Then, in likely order of payoff: the wasm compile is 1–3 ms in Chromium (measured), not worth a cache; gas estimation now runs reth's search inside the wasm in one call (0.7 ms for a Uniswap swap, was 16.7 ms in JavaScript)
-(far fewer simulated runs per transaction); make the Merkle state root lazy or optional per block for scenarios that do
-not verify headers; batch persistence writes during `setup`. Execution itself is not the bottleneck: the wasm is within
-2× of native Anvil on the reference scenario.
+Two of the three suspects are measured and closed. Gas estimation runs reth's search inside the wasm in a single call: 0.7 ms
+for a Uniswap swap where the JavaScript search took 16.7 ms, and viem's `writeContract` end to end went from 18 ms to 6 ms.
+The wasm module compiles in 1 to 3 ms in Chromium and a reload to a chain that answers takes about 190 ms, so a compiled-module
+cache would save nothing and is not planned.
+
+What remains: add `timings` to `terrarium_status` (wasm instantiate, restore, `setup`, first block) and show them in the dev bar,
+so a slow first boot can be attributed; make the Merkle state root lazy or optional per block for scenarios that never verify
+headers; batch persistence writes during `setup`. Execution itself is not the bottleneck: the reference scenario runs at about
+110 ms against 75 to 100 ms on native Anvil.
 
 ## 6. `npx terrarium init` and an npm release
 
 Scaffold a project: `terrarium.scenario.ts` with the Uniswap fixture, a `vite.config.ts` with the plugin and the
 `define` block, `.env`, `.gitignore` entries, and an `npm run e2e` skeleton. The npm side is done: `@terrariumlabs/core`,
 `@terrariumlabs/evm` (wasm inside) and `@terrariumlabs/react` publish from the workspaces (`npm publish -w @terrariumlabs/evm`, then `core`,
-then `react`; `publishConfig.access` is public, inter-package ranges are pinned to `^0.3.0`). The Vite plugin is plain JS
+then `react`; `publishConfig.access` is public, inter-package ranges are pinned to the current version). The Vite plugin is plain JS
 (`vite-plugin.js` + `.d.ts`) because Node will not type-strip a `.ts` file inside a consumer's `node_modules`; the other
 `.ts` entries are browser code that a bundler transpiles. The scaffold is what remains.
 
@@ -83,12 +98,16 @@ type-check in scenarios and recorders. The API reference already lists every mem
 
 ## 8. HTTP layer, one step further
 
-- Route knobs like the wallet's: `terrarium_setHttp({ latencyMs, failNext, status })`, with dev-bar buttons, so "the
-  API is slow" is one click for every scenario rather than code in each handler.
-- A request log in the dev bar: URL, matched route, status, time.
-- A small in-Worker indexer: given a subgraph schema and an event-to-entity mapping, keep entities in memory from the
-  logs and answer common list queries (`first`, `skip`, `orderBy`, `where` equality) without hand-written resolvers.
-- XHR interception for axios-by-default dapps.
+Routes deserve knobs like the wallet's: `terrarium_setHttp({ latencyMs, failNext, status })`, with dev-bar buttons, so
+"the API is slow" becomes one click for every scenario rather than code in each handler.
+
+The dev bar should show a request log with the URL, the matched route, the status and the time.
+
+A small in-Worker indexer would remove most hand-written resolvers: given a subgraph schema and an event-to-entity
+mapping, it would keep entities in memory from the logs and answer the common list queries (`first`, `skip`, `orderBy`,
+`where` equality).
+
+Dapps that use axios with its default adapter need XHR interception.
 
 ## 9. Fidelity beyond Uniswap
 
@@ -106,7 +125,11 @@ actors that relay messages between them.
 
 ## Not planned
 
-- **JavaScript-mocked contracts.** Every call runs bytecode; fake a contract with a Solidity stand-in at the real address
-  (README, "Honest limits").
-- **A local state trie in fork mode.** Remote state is unknown, so forked chains report a placeholder `stateRoot`.
-- **Rewriting RPC responses.** Off-chain endpoints are answered from the chain; the chain itself is never faked.
+There will be no JavaScript-mocked contracts. Every call runs bytecode, so you fake a contract with a Solidity stand-in
+at the real address (see "Honest limits" in the README).
+
+There will be no local state trie in fork mode. Remote state is unknown, so forked chains report a placeholder
+`stateRoot`.
+
+RPC responses will never be rewritten. Off-chain endpoints are answered from the chain, and the chain itself is never
+faked.

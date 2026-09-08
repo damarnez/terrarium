@@ -44,17 +44,20 @@ sequenceDiagram
   end
 ```
 
-Three things worth knowing about the mechanics:
+Three things are worth knowing about the mechanics.
 
-- **The interception is a patched `fetch` on the page**, installed by `startTerrarium` (the same code path the Vite
-  plugin and the standalone bundle use). It is what a browser extension or a Service Worker would do. The dapp cannot
-  tell; `Response` objects are real ones with the status, headers and body you returned.
-- **The route list is announced before the chain boots**, so the dapp's first fetches are not held up by a long
-  `setup()`. Requests that arrive before the list is known wait for it (milliseconds), then either go to the Worker or
-  to the network.
-- **Handlers run in the Worker with the scenario context**, outside the state lock, so they can read the chain through
-  `ctx.pub`, call cheatcodes through `ctx.rpc`, and use whatever `setup()` left in `ctx.state`. A handler that throws
-  produces a 500 with the message in the body and a console warning: the API failed, the way an API fails.
+The interception is a patched `fetch` on the page, installed by `startTerrarium`, which is the same code path the Vite
+plugin and the standalone bundle use. It does what a browser extension or a Service Worker would do. The dapp cannot
+tell the difference, because the `Response` objects it receives are real ones carrying the status, headers and body you
+returned.
+
+The route list is announced before the chain boots, so the dapp's first fetches are not held up by a long `setup()`.
+A request that arrives before the list is known waits for it, which takes milliseconds, and then goes either to the
+Worker or to the network.
+
+Handlers run in the Worker with the scenario context, outside the state lock. That means they can read the chain through
+`ctx.pub`, call cheatcodes through `ctx.rpc`, and use whatever `setup()` left in `ctx.state`. A handler that throws
+produces a 500 with the message in the body and a console warning, so the API fails the way a real API fails.
 
 ## 🧭 Declaring routes
 
@@ -251,22 +254,26 @@ same way; `test/unit/http.test.mjs` does this, and also exercises the page side 
 
 ## 📏 Limits and rules
 
-- **`fetch` only.** XMLHttpRequest and WebSocket are not intercepted. axios uses XHR in browsers by default; set
-  `adapter: 'fetch'` (axios ≥ 1.7) or use a fetch-based client. GraphQL subscriptions over WebSocket are out of scope;
-  poll instead, as the example does.
-- **Requests made before the route list arrives wait for it.** The Worker posts the list before booting the chain, so
-  this is milliseconds, not the whole `setup()`.
+Only `fetch` is intercepted. XMLHttpRequest and WebSocket are not, and axios uses XHR in browsers by default, so set
+`adapter: 'fetch'` (axios ≥ 1.7) or use a fetch-based client. GraphQL subscriptions over WebSocket are out of scope;
+poll instead, as the example does.
+
+Requests made before the route list arrives wait for it. The Worker posts the list before booting the chain, so the wait
+is milliseconds, not the whole `setup()`.
+
 > [!WARNING]
 > **Do not intercept the chain.** RPC calls the dapp makes to a `VITE_RPC_URL` go through `fetch` too. Leave that URL
 > unmatched; the wallet provider already is the chain. Rewriting RPC responses is the one thing the project forbids
 > everywhere ("change EVM state, never RPC responses").
 
-- **Compute from the chain, in the Worker.** A handler has `ctx`: `pub`, `sim`, `rpc`, `state`, `accounts`. It runs
-  outside the state lock, so it may call any RPC method, including cheatcodes, but a handler that mutates the chain on
-  a GET is a strange API; keep mutations in `methods`.
-- **Bodies are strings.** Binary uploads and streamed responses are not modelled; JSON and text are.
-- **Fragments are not expanded**, and there is no schema validation: a resolver answers what it answers. That is the
-  intended trade: four queries answered honestly from the chain, not a GraphQL server.
+Compute from the chain, in the Worker. A handler has `ctx` with `pub`, `sim`, `rpc`, `state` and `accounts`. It runs
+outside the state lock, so it may call any RPC method, including cheatcodes, but a handler that mutates the chain on a
+GET is a strange API, so keep mutations in `methods`.
+
+Bodies are strings. Binary uploads and streamed responses are not modelled; JSON and text are.
+
+Fragments are not expanded, and there is no schema validation, so a resolver answers what it answers. That is the
+intended trade: four queries answered honestly from the chain, not a GraphQL server.
 
 ## 📖 Reference
 
