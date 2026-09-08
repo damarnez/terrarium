@@ -128,7 +128,7 @@ try {
   results.explorerEvents = await page.getByTestId('tx-events').locator('li').allInnerTexts().then((l) => l.map((s) => s.replace(/\s+/g, ' ').replace(/\(.*$/, '').trim()));
   results.explorerReverted = await page.locator('[data-testid=tx-row][data-status=reverted]').count();
   await page.getByTestId('tx-filter').selectOption('mine');             // only the browser user's transactions
-  await page.waitForFunction(() => /from you/.test(document.querySelector('[data-testid=explorer] .head').innerText));
+  await page.waitForFunction(() => /shown/.test(document.querySelector('[data-testid=explorer-count]').innerText));
   results.explorerMineRows = await page.getByTestId('tx-row').count();
   results.explorerMineAllFromYou = (await page.getByTestId('tx-row').allInnerTexts()).every((t) => /\bYou\b/.test(t));
   await page.getByTestId('tx-filter').selectOption('all');

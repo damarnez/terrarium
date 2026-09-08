@@ -27,8 +27,8 @@ test('engine: newest first, status words (success / reverted / dropped / pending
   const raw = await signer.signTransaction(await signer.prepareTransactionRequest({ to: me, value: 1n, nonce: 7, gas: 21000n, chain: t.chain }));
   const dropped = await t.rpc('eth_sendRawTransaction', [raw]);
 
-  const { total, transactions } = t.sim.transactions();
-  assert.equal(total, 4);
+  const { total, pending, failed, transactions } = t.sim.transactions();
+  assert.equal(total, 4); assert.equal(pending, 0); assert.equal(failed, 2, 'reverted + dropped');
   assert.deepEqual(transactions.map((x) => x.status), ['dropped', 'reverted', 'success', 'success']);
   assert.deepEqual(transactions.map((x) => x.hash), [dropped, bad, ok, transactions[3].hash]);
   const rev = transactions[1];
@@ -46,7 +46,7 @@ test('engine: newest first, status words (success / reverted / dropped / pending
   // pending shows up first while interval mining
   await t.rpc('evm_setIntervalMining', [60_000]);
   const pend = await t.wallet(me).sendTransaction({ to: other, value: 1n });
-  assert.equal(t.sim.transactions().transactions[0].status, 'pending'); assert.equal(t.sim.transactions().transactions[0].hash, pend);
+  assert.equal(t.sim.transactions().pending, 1); assert.equal(t.sim.transactions().transactions[0].status, 'pending'); assert.equal(t.sim.transactions().transactions[0].hash, pend);
   await t.rpc('evm_setAutomine', [true]); await t.rpc('evm_mine');
   // persisted: a fresh engine restoring the dump lists the same statuses and revert data
   await t.sim.flush();

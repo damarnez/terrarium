@@ -423,7 +423,10 @@ transactions[0];   // { hash, from, to, value, input, status: 'reverted', receip
 
 In a React dev tool of your own (`@terrariumlabs/react`): `const txs = useTransactions({ limit: 20 })`, the same shape, polled.
 
-**Hide** collapses the bar to a leaf at the bottom right (remembered across reloads); the chain keeps running. To start that
+The panel has a text filter (hash, address, label, method or event name), the all / mine / failed selector, a taller mode, and a
+click on a hash copies it. `Alt+Shift+X` toggles it, `Esc` closes it.
+
+**Hide** collapses the bar to a leaf at the bottom right (remembered across reloads); the chain keeps running. `Alt+Shift+T` does the same. To start that
 way: `terrarium({ devBar: 'hidden' })` in the Vite plugin, `startTerrarium(worker, { devBar: 'hidden' })`, `<Terrarium devBar="hidden">`,
 or `npx terrarium build --devbar hidden`. A Hide/Show click always wins over the default.
 

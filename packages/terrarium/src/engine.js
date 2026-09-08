@@ -458,7 +458,7 @@ export async function createTerrarium(opts = {}) {
       return { ...t.rpc, status, receipt: t.receipt, timestamp: b ? hex(b.timestamp) : null, error: t.error ?? null, revertData: t.revertData ?? null };
     });
     const from = before ? all.findIndex((t) => t.hash === before) + 1 : 0;
-    return { total: all.length, transactions: all.slice(from, from + Math.max(0, limit)) };
+    return { total: all.length, pending: all.filter((t) => t.status === 'pending').length, failed: all.filter((t) => t.status === 'reverted' || t.status === 'dropped').length, transactions: all.slice(from, from + Math.max(0, limit)) };
   }
 
   // ---- RPC formatting ----------------------------------------------------------------------------
@@ -810,7 +810,7 @@ export async function createTerrarium(opts = {}) {
     dumpState: () => exclusive(dumpState), loadState: (d) => exclusive(() => loadState(d)), replayJournal: (j) => exclusive(() => replayJournal(j)),
     get journal() { return journal.slice(); }, flush: () => { clearTimeout(persistTimer); return persister ? exclusive(async () => persister.setItem(persistKey, JSON.stringify(await dumpState()))) : Promise.resolve(); },
     get blockNumber() { return latest().number; },
-    /** transactions newest first ({ total, transactions }): tx + receipt + status word + revert reason/data + block timestamp */
+    /** transactions newest first ({ total, pending, failed, transactions }): tx + receipt + status word + revert reason/data + block timestamp */
     transactions: (o) => listTransactions(o),
     /** React to on-chain events with scripted actors (keepers, oracles, other users, bridges...). */
     onLog(filter, handler) { const l = { filter, handler }; logListeners.push(l); return () => logListeners.splice(logListeners.indexOf(l), 1); },

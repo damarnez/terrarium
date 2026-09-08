@@ -34,6 +34,7 @@ test('setup gets a working ctx: accounts, fresh/firstBoot, install (idempotent),
   assert.equal(st.actors, false); assert.equal(st.hasActors, false); assert.equal(st.actorsLabel, 'Actors'); assert.deepEqual(st.controls, []);
   assert.equal(st.restoredFromPersistence, false); assert.equal(st.localBlocks, 1); assert.equal(st.fork, null); assert.match(st.pepe, /^0x/);
   assert.deepEqual(st.wallet, { rejectNext: 0, latencyMs: 0, receiptLagMs: 0 });
+  assert.equal(st.now, '0x' + (1_700_000_000).toString(16), 'the chain clock (a fixed clock stands still)'); assert.deepEqual(st.txs, { total: 1, pending: 0, failed: 0 });
 });
 
 test('actors: off by default, toggled together, timers and log reactions, errors contained', async () => {
