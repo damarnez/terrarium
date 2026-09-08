@@ -19,7 +19,7 @@ Read HANDOFF.md first for the full story. This file is the short operating manua
   `inject.ts` (postMessage bridge, EIP-6963 "Terrarium Wallet", `window.terrarium`, installs the interceptor), `devbar.ts` (plain-DOM overlay: controls, Hide, transaction explorer fed by `terrarium_transactions`, decoded with the scenario's `abis`/`labels`), `vite-plugin.js` (+ `.d.ts`) (generates `.terrarium/{inject,worker}.ts`
   and injects one script), `bin/terrarium.mjs` (CLI: `build` standalone bundle, `fetch-code` bytecode fixtures at
   `--block`/`--chain`, `record` = fork a chain at a block + run a warm-up script + dump an offline fixture, self-verified),
-  `fixtures/uniswap-v2-mainnet.json`.
+  `fixtures/uniswap-v2-mainnet.json`; `transport.ts` (`terrariumTransport()`: a viem transport over the EIP-6963 wallet for wagmi-style dapps, no engine code).
 - **The example scenario** (`terrarium.scenario.ts` at the root): installs the REAL Uniswap V2 at the mainnet
   addresses, deploys PEPE, seeds the pair, declares the bot-frog actors, and answers the Uniswap V2 subgraph URL the
   dapp is configured with (`VITE_SUBGRAPH_URL`) from the chain's logs, with `Indexer: down / behind / live` controls.
@@ -46,6 +46,7 @@ npm run build                # dapp WITH the terrarium injected (demo mode); VIT
 npm run build:terrarium      # = npx terrarium build: standalone injectable dist-terrarium/terrarium.js
 npx terrarium fetch-code name=0x… --rpc URL [--block N] [--chain ID] --out f.json   # runtime bytecode fixture for ctx.install
 npx terrarium record name=0x… --rpc URL --block N --chain ID [--script warm.mjs] --out f.json   # state at a block as an offline fork fixture
+npx terrarium import-anvil --rpc http://127.0.0.1:8545 --out f.json   # everything a running Anvil holds (anvil_dumpState) as a fixture for ctx.install
 npm run e2e:install          # once: Chromium for Playwright
 npm run e2e                  # plain build + injected terrarium, whole flow in headless Chromium (JSON + PASS/FAIL)
 npm test                     # test:unit + test:fork + test:examples (no network, no Foundry, no browser)

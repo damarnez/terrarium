@@ -118,3 +118,40 @@ test('build: one injectable classic script with the Worker bundle and the wasm e
   assert.ok(js.includes('data:application/wasm') || js.includes('AGFzbQ'), 'the wasm engine travels inside the script');
   assert.ok(statSync(join(out, 'terrarium.js')).size > 1_000_000);
 });
+
+test('import-anvil: anvil_dumpState (gzipped hex) becomes an accounts fixture; test accounts keep only nonces, --skip drops accounts', async () => {
+  const { gzipSync } = await import('node:zlib');
+  const { TEST_KEYS } = await import('@terrariumlabs/core');
+  const { privateKeyToAccount } = await import('viem/accounts');
+  const you = privateKeyToAccount(TEST_KEYS[0]).address;
+  const dump = { accounts: {
+    '0x00000000000000000000000000000000000000aa': { nonce: 1, balance: '0x0', code: '0x5f545f5260205ff3', storage: { '0x0': '0x2a' } },
+    '0x00000000000000000000000000000000000000ab': { nonce: 0, balance: '0xde0b6b3a7640000', code: '0x', storage: {} },
+    '0x00000000000000000000000000000000000000ac': { nonce: 2, balance: '0x1', code: '0x6001', storage: {} },
+    [you]: { nonce: 7, balance: '0x21e19e0c9bab2400000', code: '0x', storage: {} },
+  } };
+  const gz = '0x' + gzipSync(Buffer.from(JSON.stringify(dump))).toString('hex');
+  const server = createServer((req, res) => { let b = ''; req.on('data', (c) => (b += c)); req.on('end', () => { const { id, method } = JSON.parse(b);
+    const result = method === 'eth_chainId' ? '0x7a69' : method === 'eth_blockNumber' ? '0x2a' : method === 'anvil_dumpState' ? gz : null;
+    res.end(JSON.stringify({ jsonrpc: '2.0', id, result })); }); });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const rpc = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const out = join(mkdtempSync(join(tmpdir(), 'terrarium-cli-')), 'anvil.json');
+    const r = await runAsync(['import-anvil', '--rpc', rpc, '--out', out, '--skip', '0x00000000000000000000000000000000000000ac']);
+    assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /1 contracts, 3 accounts, 1 storage slots \(chain 31337, block 42\)/);
+    const fixture = JSON.parse(readFileSync(out, 'utf8'));
+    assert.equal(fixture.chainId, 31337); assert.equal(fixture.blockNumber, 42); assert.match(fixture.source, /import-anvil/);
+    assert.deepEqual(fixture.accounts['0x00000000000000000000000000000000000000aa'], { nonce: 1, balance: '0x0', code: '0x5f545f5260205ff3', storage: { '0x0': '0x2a' } });
+    assert.deepEqual(fixture.accounts['0x00000000000000000000000000000000000000ab'], { nonce: 0, balance: '0xde0b6b3a7640000' }, 'no code, no storage keys');
+    assert.equal(fixture.accounts['0x00000000000000000000000000000000000000ac'], undefined, '--skip');
+    assert.deepEqual(fixture.accounts[you.toLowerCase()], { nonce: 7 }, 'a test account contributes its nonce only');
+    // and the fixture installs: the contract answers, the deployer continues from its nonce
+    const sim = await createTerrarium({ chainId: 31337 });
+    const rpcLocal = (method, params = []) => sim.provider.request({ method, params });
+    await rpcLocal('anvil_loadState', [fixture]);
+    assert.equal(await rpcLocal('eth_call', [{ to: '0x00000000000000000000000000000000000000aa', data: '0x' }, 'latest']), '0x' + '2a'.padStart(64, '0'));
+    assert.equal(await rpcLocal('eth_getTransactionCount', [you, 'latest']), '0x7');
+    assert.equal(run(['import-anvil']).status, 1, 'needs --rpc');
+  } finally { server.close(); }
+});

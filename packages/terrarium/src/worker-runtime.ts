@@ -5,7 +5,7 @@ import { createPublicClient, createWalletClient, custom, defineChain, decodeErro
 import { createTerrarium, indexedDBStorage } from './engine.js';
 import { serveProvider } from './bridge.ts';
 import { runRoute, toWire } from './http.ts';
-import type { ScenarioConfig, ScenarioContext } from './scenario.ts';
+import type { Actor, ScenarioConfig, ScenarioContext } from './scenario.ts';
 
 export async function runScenario(config: ScenarioConfig) {
   const chainId = config.chainId ?? 31337;
@@ -34,33 +34,55 @@ export async function runScenario(config: ScenarioConfig) {
     fresh: sim.blockNumber === 0n,
     firstBoot,
     codeAt: async (a) => (await rpc('eth_getCode', [a, 'latest'])) as Hex,
-    install: async (fixture) => { for (const c of Object.values(fixture.contracts)) if ((await ctx.codeAt(c.address as Address)) === '0x') await rpc('anvil_setCode', [c.address, c.code]); },
+    install: async (fixture: any) => {
+      // an Anvil state dump (`terrarium import-anvil`, or anvil_dumpState by hand): whole accounts, code and storage,
+      // through anvil_loadState. Idempotent like the code fixtures: an account that already has code is left alone, and
+      // accounts without code (the deployer's nonce, funded EOAs) are only written on a fresh chain.
+      if (fixture?.accounts && !fixture.contracts) {
+        const accounts: Record<string, any> = {};
+        for (const [a, acct] of Object.entries(fixture.accounts as Record<string, any>)) {
+          if (!acct) continue;
+          const hasCode = acct.code && acct.code !== '0x';
+          if (hasCode ? (await ctx.codeAt(a as Address)) === '0x' : ctx.fresh) accounts[a] = acct;
+        }
+        if (Object.keys(accounts).length) await rpc('anvil_loadState', [{ accounts }]);
+        return;
+      }
+      for (const c of Object.values(fixture.contracts) as any[]) if ((await ctx.codeAt(c.address as Address)) === '0x') await rpc('anvil_setCode', [c.address, c.code]);
+    },
+    // the page reloads (a scenario that reset the chain, or rebuilt it, wants the dapp to start over on the new state)
+    reload: () => { if (typeof (globalThis as any).postMessage === 'function') (globalThis as any).postMessage({ event: 'reload', payload: null }); },
     state: {},
   };
   await config.setup?.(ctx);
   if (ctx.fresh && storage) await sim.flush();
 
-  // ---- actors: toggled together, persisted, off by default ----------------------------------------------------
+  // ---- actors: toggled together, persisted, off by default; `always` actors run regardless (keepers the protocol needs) ---
+  const wire = (a: Actor) => {
+    const safe = (log?: any) => Promise.resolve().then(() => a.run(ctx, log)).catch((e) => console.warn(`[terrarium] actor ${a.name ?? ''} failed:`, e?.message ?? e));
+    const out: (() => void)[] = [];
+    if (a.every) { const t = setInterval(() => safe(), a.every); out.push(() => clearInterval(t)); }
+    if (a.on) out.push(sim.onLog(typeof a.on === 'function' ? a.on(ctx) : a.on, (log: any) => safe(log)));
+    return out;
+  };
+  const toggled = (config.actors ?? []).filter((a) => !a.always);
+  for (const a of (config.actors ?? []).filter((a) => a.always)) wire(a);
   const actorsKey = `${key}:actors`;
-  let timers: ReturnType<typeof setInterval>[] = [], unsubs: (() => void)[] = [];
+  let unsubs: (() => void)[] = [];
   const actors = {
     enabled: storage ? (await storage.getItem(actorsKey)) === 'on' : false,
     async toggle(on: boolean) {
       actors.enabled = on; await storage?.setItem(actorsKey, on ? 'on' : 'off');
-      timers.forEach(clearInterval); timers = []; unsubs.forEach((u) => u()); unsubs = [];
+      unsubs.forEach((u) => u()); unsubs = [];
       if (!on) return;
-      for (const a of config.actors ?? []) {
-        const safe = (log?: any) => Promise.resolve().then(() => a.run(ctx, log)).catch((e) => console.warn(`[terrarium] actor ${a.name ?? ''} failed:`, e?.message ?? e));
-        if (a.every) timers.push(setInterval(() => safe(), a.every));
-        if (a.on) unsubs.push(sim.onLog(typeof a.on === 'function' ? a.on(ctx) : a.on, (log: any) => safe(log)));
-      }
+      for (const a of toggled) unsubs.push(...wire(a));
     },
   };
   if (actors.enabled) await actors.toggle(true);
 
   // ---- generic controls, reachable through the provider like any RPC method -----------------------------------
   sim.addMethod('terrarium_actors', async (on?: boolean) => { await actors.toggle(on ?? !actors.enabled); return actors.enabled; });
-  sim.addMethod('terrarium_status', async () => ({ chainId, engine: sim.engine, block: toHex(sim.blockNumber), accounts: ctx.accounts, actors: actors.enabled, actorsLabel: config.actorsLabel ?? 'Actors', hasActors: (config.actors?.length ?? 0) > 0, wallet: { ...sim.wallet }, controls: config.controls ?? [], restoredFromPersistence: sim.restoredFromPersistence, localBlocks: Number(sim.blockNumber) - (config.fork ? config.fork.blockNumber + 1 : 0), http: { routes: httpRoutes.length, hits: httpHits }, fork: config.fork ? { blockNumber: config.fork.blockNumber, offline: !!config.fork.offline, misses: sim.offlineMisses.length } : null, ...(await config.status?.(ctx)) }));
+  sim.addMethod('terrarium_status', async () => ({ chainId, engine: sim.engine, block: toHex(sim.blockNumber), accounts: ctx.accounts, actors: actors.enabled, actorsLabel: config.actorsLabel ?? 'Actors', hasActors: toggled.length > 0, wallet: { ...sim.wallet }, controls: config.controls ?? [], restoredFromPersistence: sim.restoredFromPersistence, localBlocks: Number(sim.blockNumber) - (config.fork ? config.fork.blockNumber + 1 : 0), http: { routes: httpRoutes.length, hits: httpHits }, fork: config.fork ? { blockNumber: config.fork.blockNumber, offline: !!config.fork.offline, misses: sim.offlineMisses.length } : null, ...(await config.status?.(ctx)) }));
   // ---- the transaction explorer: the engine's list, decoded with the scenario's ABIs and labelled -------------------
   const abi = (config.abis ?? []).flat() as Abi;
   const labelsOf = () => {

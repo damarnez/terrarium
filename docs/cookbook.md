@@ -31,6 +31,8 @@ same RPC surface, so a recipe written for one works in the others with the obvio
 21. [Randomness that replays](#21-randomness-that-replays)
 22. [Proving a block is real](#22-proving-a-block-is-real)
 23. [React without the Vite plugin](#23-react-without-the-vite-plugin)
+24. [The transaction explorer](#24-the-transaction-explorer)
+25. [wagmi: reads on the Terrarium chain](#25-wagmi-reads-on-the-terrarium-chain)
 
 The rule behind all of them: **write leaf state, produce structural state.** Balances, allowances, an oracle answer,
 a config flag can be written directly. Pool reserves, positions, interest indexes, LP supply must be produced by real
@@ -75,6 +77,26 @@ const original = await ctx.codeAt(CHAINLINK_ETH_USD);                           
 Use `deployedBytecode`, never `bytecode` (creation code) here: no constructor runs, so set what the constructor would
 have set with `setState`. This is the only kind of "mock" that exists: bytecode at an address. There is no JavaScript
 mock of a contract, on purpose.
+
+### A whole deployment from Anvil
+
+Your protocol has its own deploy tooling (a Foundry script that wires twenty contracts, a Hardhat deploy). Do not rewrite
+it for the Terrarium: run it against Anvil, dump, import, install.
+
+```sh
+anvil &                                              # chain 31337
+forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8545 --broadcast --private-key $ANVIL_KEY_0
+npx terrarium import-anvil --rpc http://127.0.0.1:8545 --out fixtures/protocol.json     # anvil_dumpState, inflated
+```
+```ts
+import protocol from './fixtures/protocol.json';
+async setup(ctx) { await ctx.install(protocol); }    // code, storage, nonces, balances; safe on every boot
+```
+
+Contracts land once (an address that already has code is skipped); plain accounts (the deployer's nonce, funded EOAs)
+only on a fresh chain. Anvil's ten test accounts are the Terrarium's own, so deploying from account #0 means "You" own
+the protocol in the page. Under the hood it is one `anvil_loadState` call, the same cheatcode Anvil has:
+`ctx.rpc('anvil_loadState', [dump])` takes the gzipped hex `anvil_dumpState` answers or the parsed object.
 
 ## 4. Acting as someone else
 
@@ -158,6 +180,21 @@ actorsLabel: 'Pond life',
 Off by default, toggled together (dev bar button, or `terrarium_actors(on?)`), their on/off state persists. A throwing
 actor is logged as `[terrarium] actor … failed`, never fatal. Use `ctx.random()` for anything random so a seeded
 scenario replays identically.
+
+An actor the protocol cannot work without is not "other people": a keeper that answers a mock oracle's requests, a
+relayer that executes queued orders. Give it `always: true` and it runs from the first boot, outside the toggle, so the
+dapp works before anyone finds a button; the toggle button stays for the actors that are optional (and disappears when
+none are).
+
+```ts
+actors: [
+  { name: 'oracle keeper', always: true, on: { address: ORACLE, topics: [REQUEST_SENT] }, run: async (ctx, log) => {
+    const { args } = decodeEventLog({ abi: oracleAbi, eventName: 'RequestSent', data: log.data, topics: log.topics });
+    if (ctx.state.oracle === 'down') return;                                    // a dev-bar button flips this: the refund path
+    await ctx.sim.sendAs(ctx.accounts[8], { to: ORACLE, data: encodeFunctionData({ abi: oracleAbi, functionName: 'fulfill', args: [args.requestId] }) });
+  } },
+],
+```
 
 ## 10. The wallet misbehaving
 
@@ -260,6 +297,21 @@ Methods receive `ctx` then the params, are reachable through the provider (`rpc(
 outside the state lock, so they can call other RPC methods. They mutate EVM state; they never rewrite responses. The dev
 bar renders `controls` in order as `control-0`, `control-1`, … for tests.
 
+A button that rebuilds the world (pick a use case, start from another fixture) resets the chain, and the dapp on top of
+it has to start over too. `ctx.reload()` asks the page to reload once the method has done its work; the dev bar's own
+Reset button does the same thing for its reset. Keep the choice somewhere Reset does not wipe (its own IndexedDB store,
+not the chain's) and read it back in `setup()`:
+
+```ts
+import { indexedDBStorage } from '@terrariumlabs/core';
+const settings = indexedDBStorage('my-dapp-terrarium');           // survives terrarium_reset, which clears the chain's store
+methods: {
+  async terrarium_useCase(ctx, id: string) { await settings.setItem('useCase', id); await ctx.rpc('terrarium_reset'); ctx.reload(); },
+},
+async setup(ctx) { const useCase = (await settings.getItem('useCase')) ?? 'default'; if (ctx.fresh) await seed(ctx, useCase); },
+controls: [{ label: 'Use case: all in one vault', method: 'terrarium_useCase', params: ['all-in-one-vault'] }],
+```
+
 ## 18. Reading status from tests
 
 ```js
@@ -325,6 +377,33 @@ const provider = useTerrarium();                         // in a child: the wall
 For Next.js, Remix, CRA and Storybook. Guard it with your bundler's development constant so production drops it, and check
 the bundle once. Prefer the Vite plugin when you can: it keeps the simulator out of your source entirely.
 [integrations.md](integrations.md) has the Next.js and Storybook recipes and the script-tag path for everything else.
+
+On Vite, a React app that wants the component (context, StrictMode, unmount) without writing the two files or the guard
+lets the plugin generate them: `terrarium({ mount: 'react' })`, then
+
+```tsx
+import TerrariumMount from 'virtual:terrarium/react';            // the generated <Terrarium> over the generated Worker, or null when off
+root.render(<>{TerrariumMount && <TerrariumMount />}<App /></>);
+```
+
+Off (`VITE_TERRARIUM=off`), the module exports `null` and the bundle carries none of the simulator: the gating is the
+plugin's, not a constant you maintain.
+
+## 25. wagmi: reads on the Terrarium chain
+
+A viem dapp reads through the wallet provider it discovered; a wagmi dapp declares one transport per chain up front, before
+any wallet is connected, and `http()` has nothing to point at (the wallet is the node). `@terrariumlabs/core/transport` is that
+transport: `custom()` over the EIP-6963 announcement, found on the first request.
+
+```ts
+import { terrariumTransport } from '@terrariumlabs/core/transport';      // no engine code, a few dozen lines
+const terrarium = defineChain({ id: 31337, name: 'Terrarium', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: { default: { http: [] } } });
+createConfig({ chains: [mainnet, terrarium], transports: { [mainnet.id]: http(), [terrarium.id]: terrariumTransport() } });
+```
+
+Keep it behind the same guard as the mount: a page without a Terrarium has nothing to find, and reads on that chain fail
+the way reads on an unreachable RPC would. The wallet side needs nothing: wagmi's `injected()` discovery lists "Terrarium
+Wallet" like any extension.
 
 ## 24. The transaction explorer
 

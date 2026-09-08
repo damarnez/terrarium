@@ -66,7 +66,7 @@ class RecordingRPCStateManager extends RPCStateManager {
   async getStorage(address, key) { if (this.knownAbsent(address) && this._caches.storage.get(address, key) === undefined) return new Uint8Array(); const rk = `${address.toString()}_${bytesToHex(key)}`; if (this._caches.storage.get(address, key) === undefined && this.remote.storage.has(rk)) { const v = this.remote.storage.get(rk); this._caches.storage.put(address, key, v); return v; } if (this.offline && this._caches.storage.get(address, key) === undefined) this.miss('storage', `${address.toString()}:${bytesToHex(key)}`); if (globalThis.process?.env?.TERRARIUM_DEBUG && this._caches.storage.get(address, key) === undefined) console.log('[remote] storage', address.toString(), bytesToHex(key)); const v = await this.retry(() => super.getStorage(address, key)); this.remote.storage.set(`${address.toString()}_${bytesToHex(key)}`, v); return v; }
 }
 
-const STATE_CHANGING = new Set(['eth_sendTransaction', 'eth_sendRawTransaction', 'evm_mine', 'anvil_mine', 'hardhat_mine', 'evm_setNextBlockTimestamp', 'anvil_setNextBlockTimestamp', 'evm_increaseTime', 'anvil_increaseTime', 'evm_setAutomine', 'anvil_setAutomine', 'anvil_setBalance', 'hardhat_setBalance', 'anvil_setCode', 'hardhat_setCode', 'anvil_setNonce', 'hardhat_setNonce', 'anvil_setStorageAt', 'hardhat_setStorageAt', 'anvil_impersonateAccount', 'hardhat_impersonateAccount', 'anvil_stopImpersonatingAccount', 'hardhat_stopImpersonatingAccount', 'anvil_setNextBlockBaseFeePerGas', 'hardhat_setNextBlockBaseFeePerGas', 'sim_deal', 'sim_setState']);
+const STATE_CHANGING = new Set(['eth_sendTransaction', 'eth_sendRawTransaction', 'evm_mine', 'anvil_mine', 'hardhat_mine', 'evm_setNextBlockTimestamp', 'anvil_setNextBlockTimestamp', 'evm_increaseTime', 'anvil_increaseTime', 'evm_setAutomine', 'anvil_setAutomine', 'anvil_setBalance', 'hardhat_setBalance', 'anvil_setCode', 'hardhat_setCode', 'anvil_setNonce', 'hardhat_setNonce', 'anvil_setStorageAt', 'hardhat_setStorageAt', 'anvil_loadState', 'hardhat_loadState', 'anvil_impersonateAccount', 'hardhat_impersonateAccount', 'anvil_stopImpersonatingAccount', 'hardhat_stopImpersonatingAccount', 'anvil_setNextBlockBaseFeePerGas', 'hardhat_setNextBlockBaseFeePerGas', 'sim_deal', 'sim_setState']);
 const pad32 = (h) => pad(typeof h === 'bigint' ? numberToHex(h, { size: 32 }) : h, { size: 32 });
 
 /** small deterministic PRNG (mulberry32) so scripted actors are reproducible when a seed is given */
@@ -583,6 +583,7 @@ export async function createTerrarium(opts = {}) {
         case 'anvil_setCode': case 'hardhat_setCode': await sm.putCode(createAddressFromString(params[0]), hexToBytes(params[1])); return null;
         case 'anvil_setNonce': case 'hardhat_setNonce': await sm.modifyAccountFields(createAddressFromString(params[0]), { nonce: hexToBigInt(params[1]) }); return null;
         case 'anvil_setStorageAt': case 'hardhat_setStorageAt': await sm.putStorage(createAddressFromString(params[0]), hexToBytes(numberToHex(hexToBigInt(params[1]), { size: 32 })), hexToBytes(numberToHex(hexToBigInt(params[2]), { size: 32 }))); return null;
+        case 'anvil_loadState': case 'hardhat_loadState': return loadAnvilState(params[0]);
         case 'anvil_impersonateAccount': case 'hardhat_impersonateAccount': impersonated.add(params[0].toLowerCase()); return null;
         case 'anvil_stopImpersonatingAccount': case 'hardhat_stopImpersonatingAccount': impersonated.delete(params[0].toLowerCase()); return null;
         case 'anvil_setNextBlockBaseFeePerGas': case 'hardhat_setNextBlockBaseFeePerGas': baseFee = hexToBigInt(params[0]); return null;
@@ -707,6 +708,37 @@ export async function createTerrarium(opts = {}) {
     for (const [k, v] of Object.entries(values)) await walk([k], v);
     schedulePersist();
     return written;
+  }
+
+  // ---- anvil_loadState: an Anvil state dump (anvil_dumpState / --dump-state) written into this chain ------------------
+  // Accepts what Anvil hands out: the gzipped JSON as a hex string, or the parsed object. Every account's code, nonce,
+  // balance and storage land through the state manager like the single cheatcodes do, in one journaled call. Deploy a
+  // protocol with its own tooling (Foundry scripts, Hardhat deploys) against Anvil, dump, and boot the Terrarium from it.
+  async function loadAnvilState(input) {
+    const dump = typeof input === 'string' ? await parseAnvilDump(input) : input;
+    const accounts = dump?.accounts ?? dump;
+    if (!accounts || typeof accounts !== 'object') throw new RpcError(-32602, 'anvil_loadState: expected an Anvil state dump ({ accounts: { address: { nonce, balance, code, storage } } })');
+    let n = 0, slots = 0;
+    for (const [a, acct] of Object.entries(accounts)) {
+      if (!acct) continue;
+      const addr = createAddressFromString(a);
+      if (acct.code && acct.code !== '0x') await sm.putCode(addr, hexToBytes(acct.code));
+      const fields = {};
+      if (acct.nonce !== undefined) fields.nonce = BigInt(acct.nonce);
+      if (acct.balance !== undefined) fields.balance = BigInt(acct.balance);
+      if (Object.keys(fields).length) await sm.modifyAccountFields(addr, fields);
+      for (const [k, v] of Object.entries(acct.storage ?? {})) { await sm.putStorage(addr, hexToBytes(pad32(hexToBigInt(k))), hexToBytes(pad32(hexToBigInt(v)))); slots++; }
+      n++;
+    }
+    return { accounts: n, slots };
+  }
+  /** Anvil's wire format: hex of gzipped JSON. Inflated with the platform's DecompressionStream (browsers, Workers, Node 18+). */
+  async function parseAnvilDump(hexDump) {
+    const bytes = hexToBytes(hexDump);
+    if (bytes[0] !== 0x1f || bytes[1] !== 0x8b) return JSON.parse(new TextDecoder().decode(bytes));   // not gzipped: plain JSON as hex
+    if (typeof DecompressionStream === 'undefined') throw new RpcError(-32000, 'anvil_loadState: gzipped dump but no DecompressionStream here; pass the parsed object');
+    const inflated = await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+    return JSON.parse(inflated);
   }
 
   // ---- persistence: dump the diff, restore it, or replay the journal -------------------------------

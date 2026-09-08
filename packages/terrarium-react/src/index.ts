@@ -19,13 +19,17 @@ const Ctx = createContext<WorkerProvider | null>(null);
 export interface TerrariumProps extends StartOptions {
   /** creates the Worker that runs your scenario: () => new Worker(new URL('./terrarium.worker.ts', import.meta.url), { type: 'module' }) */
   worker: () => Worker;
+  /** render the children only once the Terrarium is started and the wallet announced (one render tick later). Wallet
+   *  libraries that reconnect the last wallet synchronously during their first render (wagmi) otherwise miss a wallet
+   *  that appears in an effect, and every reload comes up disconnected: wrap the app and set `defer` */
+  defer?: boolean;
   children?: ReactNode;
 }
 
 /** Starts the Terrarium when mounted (browser only; a no-op during SSR), stops it when unmounted. Renders its children,
  *  giving them `useTerrarium()`. If a Terrarium is already on the page (the Vite plugin or an injected script), it reuses
  *  that one instead of starting a second chain. */
-export function Terrarium({ worker, devBar = true, children }: TerrariumProps) {
+export function Terrarium({ worker, devBar = true, defer = false, children }: TerrariumProps) {
   const [provider, setProvider] = useState<WorkerProvider | null>(null);
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -34,7 +38,9 @@ export function Terrarium({ worker, devBar = true, children }: TerrariumProps) {
     setProvider(startTerrarium(worker(), { devBar }));
     return () => { stopTerrarium(); setProvider(null); };
   }, []);   // eslint-disable-line react-hooks/exhaustive-deps -- one chain per mount, by design
-  return createElement(Ctx.Provider, { value: provider }, children ?? null);
+  // deferred children wait for the wallet; during SSR there is no wallet to wait for, so they render (the Worker is a browser thing)
+  const show = !defer || provider !== null || typeof window === 'undefined';
+  return createElement(Ctx.Provider, { value: provider }, show ? children ?? null : null);
 }
 
 /** The wallet provider of the mounted Terrarium (null until the Worker is ready), for your own dev tools:

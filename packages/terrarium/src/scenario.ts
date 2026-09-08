@@ -36,14 +36,28 @@ export interface ScenarioContext {
   /** true when nothing was persisted yet (first boot or after a reset), even if a fixture was restored: seed the user once */
   firstBoot: boolean;
   codeAt(address: Address): Promise<Hex>;
-  /** put a fixture's bytecode at its addresses (skips contracts already present, so it is safe on every boot) */
-  install(fixture: Fixture): Promise<void>;
+  /** put a fixture on the chain, safe on every boot. A code fixture (`terrarium fetch-code`) writes each contract's
+   *  bytecode where there is none yet. An Anvil state dump (`terrarium import-anvil`, or `anvil_dumpState` by hand)
+   *  writes whole accounts (code, storage, nonce, balance) through `anvil_loadState`: contracts that already have code
+   *  are skipped, accounts without code (the deployer's nonce, funded EOAs) are only written on a fresh chain */
+  install(fixture: Fixture | AnvilStateFixture): Promise<void>;
+  /** ask the page to reload: for a method that reset or rebuilt the chain and wants the dapp to start over on it */
+  reload(): void;
   /** a bag for whatever setup() discovers (addresses...) that actors and status() need later */
   state: Record<string, any>;
 }
 
+/** what `anvil_dumpState` / `anvil --dump-state` produce (and `terrarium import-anvil` writes): whole accounts */
+export interface AnvilStateFixture {
+  accounts: Record<string, { nonce?: number | string; balance?: string; code?: Hex; storage?: Record<string, string> } | null>;
+  [extra: string]: unknown;
+}
+
 export interface Actor {
   name?: string;
+  /** run from the first boot, outside the actors toggle: a keeper the protocol cannot work without (an oracle answering
+   *  requests) belongs here; other people trading belongs in the toggled actors */
+  always?: boolean;
   /** run every N ms */
   every?: number;
   /** ...or run when a matching log is mined (a function, if the filter depends on setup() results) */

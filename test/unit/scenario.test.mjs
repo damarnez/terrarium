@@ -90,3 +90,37 @@ test('a numeric clock freezes time: blocks advance one second at a time from it'
   await sim.provider.request({ method: 'evm_mine' }); await sim.provider.request({ method: 'evm_mine' });
   assert.equal(Number((await sim.provider.request({ method: 'eth_getBlockByNumber', params: ['latest', false] })).timestamp), 1_600_000_002);
 });
+
+test('ctx.install with an Anvil dump: contracts once, EOAs only on a fresh chain; ctx.reload posts to the page', async () => {
+  const contract = '0x00000000000000000000000000000000000000cc';
+  const dump = { source: 'anvil', accounts: { [contract]: { nonce: 1, balance: '0x0', code: '0x5f545f5260205ff3', storage: { '0x0': '0x2a' } }, '0x00000000000000000000000000000000000000dd': { nonce: 3, balance: '0x64' } } };
+  let seen;
+  const sim = await runScenario({ persist: false, clock: 1, async setup(ctx) {
+    await ctx.install(dump);
+    // a second install is a no-op for the contract (code present) and, the chain no longer fresh after the first write? no:
+    // no block was mined, so the EOA would be written again; make the chain non-fresh and check nothing else lands
+    await ctx.rpc('evm_mine'); ctx.fresh = false;
+    await ctx.install(dump);
+    seen = { code: await ctx.codeAt(contract), slot: await ctx.rpc('eth_getStorageAt', [contract, '0x0', 'latest']), nonce: await ctx.rpc('eth_getTransactionCount', ['0x00000000000000000000000000000000000000dd', 'latest']) };
+    ctx.reload();
+  } });
+  assert.equal(seen.code, '0x5f545f5260205ff3'); assert.equal(seen.slot, '0x' + '2a'.padStart(64, '0')); assert.equal(seen.nonce, '0x3');
+  assert.equal(sim.journal.filter((e) => e.method === 'anvil_loadState').length, 1, 'the second install wrote nothing');
+  assert.ok(posted.some((m) => m.event === 'reload'), 'ctx.reload() reaches the page as a reload event');
+});
+
+test('actors with always: true run from boot, outside the toggle, and do not count as toggleable actors', async () => {
+  let keeper = 0, trader = 0;
+  const sim = await runScenario({ persist: false, clock: 1, actors: [
+    { name: 'keeper', always: true, every: 15, run: () => { keeper++; } },
+    { name: 'trader', every: 15, run: () => { trader++; } },
+  ] });
+  const rpc = (m, p = []) => sim.provider.request({ method: m, params: p });
+  await sleep(50);
+  assert.ok(keeper >= 2, `the keeper ran without the toggle (${keeper})`); assert.equal(trader, 0, 'the trader waits for the toggle');
+  assert.equal((await rpc('terrarium_status')).hasActors, true);
+  await rpc('terrarium_actors', [true]); await sleep(40); assert.ok(trader >= 1);
+  await rpc('terrarium_actors', [false]); const k = keeper; await sleep(40); assert.ok(keeper > k, 'the toggle never stops an always actor');
+  const only = await runScenario({ persist: false, clock: 1, actors: [{ always: true, every: 1000, run() {} }] });
+  assert.equal((await only.provider.request({ method: 'terrarium_status' })).hasActors, false, 'nothing to toggle: the dev bar hides the button');
+});

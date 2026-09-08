@@ -14,6 +14,7 @@ your source has to mention it.
 | you have | use | your source mentions the simulator? |
 |---|---|---|
 | a Vite app | the [Vite plugin](#-vite-plugin-recommended) | **no**: one `<script>` injected into `index.html` |
+| a Vite app that wants a React mount | the [Vite plugin](#-vite-plugin-recommended) with `mount: 'react'` | one import of `virtual:terrarium/react`, null when off |
 | Next.js, Remix, CRA, any React app not on Vite | [`@terrariumlabs/react`](#%EF%B8%8F-react-component-terrariumreact) | yes, behind a build-time guard |
 | a Storybook | [`@terrariumlabs/react` in a decorator](#-storybook) or the script tag | in the Storybook config, not the app |
 | a built site, someone else's dapp, a Playwright test | [a script tag](#-a-plain-script-tag) with `npx terrarium build` | **no** |
@@ -55,6 +56,21 @@ export default defineConfig({
 The plugin writes `.terrarium/{inject,worker}.ts` (gitignore it) and injects one module script into `index.html`.
 `VITE_TERRARIUM=off` in `.env` or the environment builds and serves the plain dapp. The [tutorial's step 3](tutorial-new-protocol.md#3-point-your-dapp-at-the-addresses-and-inject-the-terrarium) is the full walkthrough.
 
+A React app on Vite that would rather mount the Terrarium from its tree (a component with context, StrictMode-safe, unmounted
+with the tree) than through a script tag does not need the [React component](#%EF%B8%8F-react-component-terrariumreact) path
+and its guard: the plugin generates the mount.
+
+```ts
+plugins: [react(), terrarium({ mount: 'react' })],        // needs @terrariumlabs/react installed; injects nothing into index.html
+```
+```tsx
+import TerrariumMount from 'virtual:terrarium/react';     // the generated <Terrarium> over the generated Worker
+root.render(<>{TerrariumMount && <TerrariumMount />}<App /></>);
+```
+
+When the Terrarium is off the module is `export default null`, so the app renders nothing and the bundle carries none of the
+simulator: rule 1 holds without a constant of your own (add `/// <reference types="@terrariumlabs/core/vite" />` for the module's types).
+
 ## ⚛️ React component (`@terrariumlabs/react`)
 
 ```sh
@@ -92,7 +108,13 @@ the JSX, the Worker and the dynamic scenario import behind it are all dropped.
 
 What the component does: on mount, in a browser, it creates the Worker, announces the wallet and mounts the dev bar; on
 unmount it stops everything (`stopTerrarium`), which also makes React StrictMode's double-mount harmless. If a Terrarium is
-already on the page (the Vite plugin, an injected script), it reuses it. Its children can call `useTerrarium()` to get the
+already on the page (the Vite plugin, an injected script), it reuses it.
+
+> [!TIP]
+> wagmi (and libraries like it) reconnect the last wallet synchronously during their first render. A wallet announced from an
+> effect a moment later is missed, and every reload comes up disconnected. Render the app as the component's children with
+> `defer` (`<Terrarium worker={…} defer><App /></Terrarium>`): they render one tick later, once the wallet is on the page.
+> The generated mount of the Vite plugin's `mount: 'react'` does this already. Its children can call `useTerrarium()` to get the
 provider for their own dev tools, and `<DevBar provider={…} />` mounts only the bar over any provider that answers the
 `terrarium_*` methods. Full surface: [api.md](api.md#terrariumlabsreact).
 

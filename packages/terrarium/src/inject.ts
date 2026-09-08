@@ -20,6 +20,8 @@ export function startTerrarium(worker: Worker, opts: StartOptions = {}) {
   // the RPC is the fallback. Until either arrives, the dapp's fetches wait; nothing else about them changes.
   const routes = new Promise<WireRoute[]>((res) => { provider.on('httpRoutes', (r) => res(r as WireRoute[])); provider.request({ method: 'terrarium_httpRoutes' }).then((r) => res(r as WireRoute[]), () => res([])); });
   installHttpInterceptor(provider, routes);
+  // a scenario method that reset or rebuilt the chain asks the page to start over (ctx.reload())
+  provider.on('reload', () => window.location.reload());
   const detail = Object.freeze({ info: { uuid: '7e44a1c0-5f0b-4c1e-9b7a-a1b2c3d4e5f6', name: 'Terrarium Wallet', icon: ICON, rdns: 'dev.terrarium' }, provider });
   const announce = () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail }));
   window.addEventListener('eip6963:requestProvider', announce);

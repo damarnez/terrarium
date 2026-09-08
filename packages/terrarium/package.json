@@ -44,6 +44,7 @@
     "./devbar": "./src/devbar.ts",
     "./bridge": "./src/bridge.ts",
     "./http": "./src/http.ts",
+    "./transport": "./src/transport.ts",
     "./vite": "./src/vite-plugin.js",
     "./fixtures/*": "./fixtures/*"
   },

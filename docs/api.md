@@ -4,7 +4,7 @@
 
 **Contents:** [createTerrarium](#createterrariumoptions--sim--terrarium--terrariumengine) · [sim](#sim) · [Verifiable blocks](#verifiable-blocks) ·
 [RPC surface](#rpc-surface-providerrequest-method-params-) · [defineScenario](#definescenarioconfig--terrariumscenario) · [HTTP routes](#http-routes-terrariumhttp) ·
-[Recording a protocol](#recording-a-protocol-the-examples-recipe) · [Vite plugin](#vite-plugin--terrariumvite) · [CLI](#cli--npx-terrarium) · [Bridge](#the-postmessage-bridge--terrariumbridge) ·
+[Recording a protocol](#recording-a-protocol-the-examples-recipe) · [Vite plugin](#vite-plugin--terrariumvite) · [CLI](#cli--npx-terrarium) · [viem transport](#viem-transport--terrariumlabscoretransport) · [Bridge](#the-postmessage-bridge--terrariumbridge) ·
 [wasm engine](#the-wasm-engine-package-terrariumlabsevm) · [Injected page globals](#injected-page-globals) · [@terrariumlabs/react](#terrariumlabsreact) · [Tests](#tests)
 
 ## `createTerrarium(options)` → `sim`  (`@terrariumlabs/core` / `@terrariumlabs/core/engine`)
@@ -70,7 +70,7 @@ funds) gets a failed receipt with `droppedReason` instead, so `waitForTransactio
 - **Node**: `eth_chainId net_version web3_clientVersion eth_syncing eth_blockNumber eth_getBlockByNumber eth_getBlockByHash eth_getBalance eth_getTransactionCount eth_getCode eth_getStorageAt eth_gasPrice eth_maxPriorityFeePerGas eth_feeHistory eth_call eth_estimateGas eth_sendRawTransaction eth_getTransactionReceipt eth_getTransactionByHash eth_getLogs eth_newFilter eth_newBlockFilter eth_newPendingTransactionFilter eth_getFilterChanges eth_getFilterLogs eth_uninstallFilter eth_subscribe eth_unsubscribe`. `eth_call` accepts a geth state-override set (`balance nonce code state stateDiff`) as the third param; the `pending` tag simulates on the next block;
   `eth_getBlockByNumber('pending')` returns the next block (real number and timestamp, `hash: null`, the mempool as `transactions`) like geth/Anvil. `eth_subscribe` answers `0x1` and new heads arrive as EIP-1193 `message` events (`{ type: 'eth_subscription', data: { subscription, result } }`); viem's `custom` transport polls anyway.
 - **Wallet**: `eth_accounts eth_requestAccounts eth_sendTransaction personal_sign eth_signTypedData_v4 wallet_switchEthereumChain wallet_addEthereumChain wallet_getPermissions wallet_requestPermissions wallet_revokePermissions`. Wallet methods pass through the latency / rejection gate (before the state lock, so reads keep flowing).
-- **Cheatcodes** (Anvil and Hardhat names, so viem's `createTestClient({ mode: 'anvil' })` works unchanged): `evm_mine anvil_mine hardhat_mine evm_setNextBlockTimestamp evm_increaseTime (negative allowed) evm_setAutomine evm_setIntervalMining anvil_setBalance anvil_setCode anvil_setNonce anvil_setStorageAt anvil_impersonateAccount anvil_stopImpersonatingAccount anvil_setNextBlockBaseFeePerGas evm_snapshot evm_revert`; every `anvil_*` also as `hardhat_*`, and `anvil_setNextBlockTimestamp / anvil_increaseTime / anvil_setAutomine / anvil_setIntervalMining` as aliases of the `evm_*` ones.
+- **Cheatcodes** (Anvil and Hardhat names, so viem's `createTestClient({ mode: 'anvil' })` works unchanged): `evm_mine anvil_mine hardhat_mine evm_setNextBlockTimestamp evm_increaseTime (negative allowed) evm_setAutomine evm_setIntervalMining anvil_setBalance anvil_setCode anvil_setNonce anvil_setStorageAt anvil_loadState anvil_impersonateAccount anvil_stopImpersonatingAccount anvil_setNextBlockBaseFeePerGas evm_snapshot evm_revert`; every `anvil_*` also as `hardhat_*`, and `anvil_setNextBlockTimestamp / anvil_increaseTime / anvil_setAutomine / anvil_setIntervalMining` as aliases of the `evm_*` ones. `anvil_loadState(dump)` takes what Anvil's `anvil_dumpState` / `--dump-state` produce (the gzipped JSON as hex, or the parsed `{ accounts: { address: { nonce, balance, code, storage } } }`) and writes every account's code, storage, nonce and balance in one journaled call; it returns `{ accounts, slots }`.
 - **Terrarium**: `terrarium_transactions({ limit?, before? })` → `sim.transactions(...)` (under `runScenario`, decoded: see below), `sim_deal(token, holder, amountHex, opts)`, `sim_setState(address, layout, values)`, `sim_dumpState()`, `terrarium_setWallet({ rejectNext?, latencyMs?, receiptLagMs? })` → the knobs, `terrarium_getWallet()`.
 - **Scenario runtime** (when run through `runScenario`): `terrarium_actors(on?)` → enabled, `terrarium_status()` → `{ chainId, engine, block, accounts, actors, actorsLabel, hasActors, wallet, controls, restoredFromPersistence, localBlocks, fork: null | { blockNumber, offline, misses }, http: { routes, hits }, ...status(ctx) }`, `terrarium_reset()` (stops actors and timers, **clears the whole IndexedDB store** of this origin, returns true; the dev bar reloads), `terrarium_httpRoutes()` → the scenario's `http` routes in wire form, `terrarium_http(index, { url, method, headers?, body? })` → `{ status, headers, body }` (runs one route; what the patched `fetch` calls), plus anything in `methods`.
 - Errors carry EIP-1193 / JSON-RPC codes and extend viem's `BaseError`: `3` execution reverted (with revert `data`), `4001` user rejected, `4100` unauthorized (unknown signer, or a wallet method on `node`), `4902` unknown chain, `-32000` node errors (`no key for 0x…`, `filter not found`), `-32601` unknown method. viem decodes them unchanged and does not retry them.
@@ -84,7 +84,7 @@ funds) gets a failed receipt with `droppedReason` instead, so `waitForTransactio
 | `clock` | `'wall'` (default), `'recording'` (wall clock re-based to the fixture's last block: oracles with staleness checks keep working), or a fixed number of seconds (blocks then advance one second at a time) |
 | `controls` | `{ label, method, params?, title? }[]`: extra dev-bar buttons calling your `methods` (or any RPC method) |
 | `setup(ctx)` | runs on every boot. `ctx.fresh` is true only when the chain is at block 0; `ctx.firstBoot` when nothing was persisted yet |
-| `actors` | `{ name?, every?: ms, on?: filter \| (ctx) => filter, run(ctx, log?) }[]`; toggled together, off by default, persisted. A throwing actor is logged (`[terrarium] actor … failed`), never fatal |
+| `actors` | `{ name?, every?: ms, on?: filter \| (ctx) => filter, run(ctx, log?), always? }[]`; toggled together, off by default, persisted. `always: true` runs from the first boot outside the toggle (a keeper the protocol cannot work without) and does not count towards `hasActors`. A throwing actor is logged (`[terrarium] actor … failed`), never fatal |
 | `actorsLabel` | dev bar label for the toggle (default `Actors`) |
 | `status(ctx)` | extra fields merged into `terrarium_status` |
 | `methods` | `{ terrarium_x: (ctx, ...args) => result }` |
@@ -96,7 +96,9 @@ funds) gets a failed receipt with `droppedReason` instead, so `waitForTransactio
 client signing with the sim's keys), `wait(hashOrPromise)`, `deadline(seconds = 3600)` (chain clock), `random()`,
 `fresh` (block 0: first boot or after Reset; **never true in fork mode**, where the chain starts at the fork block + 1),
 `firstBoot` (nothing persisted yet, even if a fixture was restored: the once-only hook for fork scenarios), `codeAt(address)`,
-`install(fixture)` (writes each contract's code only where there is none), `state` (free-form bag).
+`install(fixture)` (a code fixture: writes each contract's code only where there is none; an Anvil state fixture from `terrarium import-anvil`: whole
+accounts through `anvil_loadState`, contracts skipped once they have code, plain accounts written only on a fresh chain), `reload()` (asks the page
+to reload, for a method that reset or rebuilt the chain), `state` (free-form bag).
 
 ## HTTP routes  (`@terrariumlabs/core/http`)
 The page's `fetch` is patched by `startTerrarium`; requests matching a scenario `http` route are posted to the Worker and
@@ -127,10 +129,16 @@ a handler that throws is answered as a 500 with `{ error }` and a console warnin
 See `examples/aave/record.mjs` and `examples/euler/record.mjs`, and the tutorial's step 1B.
 
 ## Vite plugin  (`@terrariumlabs/core/vite`)
-`terrarium({ scenario?: 'terrarium.scenario.ts' })`. Generates `.terrarium/{inject,worker}.ts` (gitignore it) and
-injects one module script into `index.html`. Disabled when `VITE_TERRARIUM=off` (env file or environment). The host
-config also needs `define: { 'process.env.DEBUG': 'undefined', 'process.env.TERRARIUM_DEBUG': 'undefined' }` (ethereumjs
-depends on `debug`, which reads `process.env` in the browser), `worker: { format: 'es' }` and `build.target: 'es2022'`.
+`terrarium({ scenario?: 'terrarium.scenario.ts', devBar?: true | 'hidden' | false, mount?: 'script' | 'react' })`. Generates
+`.terrarium/{inject,worker}.ts` (gitignore it) and injects one module script into `index.html`. Disabled when `VITE_TERRARIUM=off`
+(env file or environment). The host config also needs `define: { 'process.env.DEBUG': 'undefined', 'process.env.TERRARIUM_DEBUG': 'undefined' }`
+(ethereumjs depends on `debug`, which reads `process.env` in the browser), `worker: { format: 'es' }` and `build.target: 'es2022'`.
+
+`mount: 'react'` injects nothing and instead serves the virtual module `virtual:terrarium/react` (generated `.terrarium/react.tsx`): its
+default export is a `@terrariumlabs/react` `<Terrarium>` over the generated Worker, with the plugin's `devBar` baked in, for the app to render
+once at its root (`{TerrariumMount && <TerrariumMount />}`); `enabled` says whether the Terrarium is on. Off, the module is
+`export default null` and the bundle carries none of the simulator, so the app needs no guard of its own. Needs `@terrariumlabs/react`
+installed. Also exported: `workerEntry(scenarioImport)`, `reactMountEntry(devBar)`, `REACT_MOUNT_ID`.
 
 ## CLI  (`npx terrarium`)
 The `terrarium` binary ships with `@terrariumlabs/core`; `npx terrarium …` finds it in a project that has the package installed
@@ -150,6 +158,18 @@ The `terrarium` binary ships with `@terrariumlabs/core`; `npx terrarium …` fin
   Writes `{ source, chainId, blockNumber, timestamp, recordedAt, addresses, expected, remoteReads, dump }`, then boots the
   file with the network forbidden and reads the named accounts back; a fixture that cannot replay is not written (exit 1).
   Consumed by a scenario as `fork: { blockNumber: fixture.blockNumber, offline: true }, restore: fixture.dump, clock: 'recording'`.
+- `terrarium import-anvil --rpc <url> [--out fixture.json] [--skip 0xaddress]...`: everything a running Anvil holds, as a fixture for
+  `ctx.install`: `anvil_dumpState` inflated into `{ source, chainId, blockNumber, importedAt, accounts: { address: { nonce, balance, code,
+  storage } } }`. Deploy a protocol with its own tooling (`forge script --broadcast`, `hardhat deploy`) against Anvil, import, and the
+  Terrarium boots from the same bytes. Anvil's ten test accounts (the Terrarium's own, funded at genesis) contribute only their nonces;
+  `--skip` leaves other accounts out.
+
+## viem transport  (`@terrariumlabs/core/transport`)
+`terrariumTransport({ timeoutMs? })`: a viem `custom()` transport whose requests go to the Terrarium Wallet, found through its EIP-6963
+announcement (rdns `dev.terrarium`, or `window.terrarium` when already injected) on the first request. For dapps that declare one transport
+per chain up front, before a wallet is connected: `createConfig({ transports: { [31337]: terrariumTransport() } })` in wagmi, or a
+`createPublicClient`. It imports none of the engine. `discoverTerrarium(timeoutMs)` and `TERRARIUM_RDNS` are exported too. A page without a
+Terrarium has nothing to find, so keep it behind the same guard as the mount.
 
 ## The postMessage bridge  (`@terrariumlabs/core/bridge`)
 `serveProvider(provider)` (Worker side) answers `{ id, method, params }` messages and forwards `message`, `accountsChanged`,
@@ -181,7 +201,8 @@ mounts the dev bar (`devBar: false` skips it); it returns the provider. Starting
 `mountDevBar(provider)` from `@terrariumlabs/core/devbar` mounts only the bar over any provider answering the `terrarium_*` methods.
 
 `window.terrarium = { provider, request(method, params) }`: the wallet's own global, like `window.ethereum`. For tests
-and the console, never for the dapp. `window.fetch` is replaced by the HTTP interceptor when the scenario declares
+and the console, never for the dapp. A `reload` event from the Worker (`ctx.reload()` in a scenario method that reset or rebuilt the
+chain) reloads the page. `window.fetch` is replaced by the HTTP interceptor when the scenario declares
 `http` routes (unmatched requests pass through to the original). The dev bar mounts as `<footer id="terrarium-devbar" data-testid="devbar">` with
 buttons carrying `data-testid`s: `block` (the head counter), `mine plus-hour mining snapshot actors reject-next
 wallet-latency receipt-lag txs reset hide`, and `control-<i>` for the scenario's `controls` in order. `txs` toggles the
@@ -198,7 +219,7 @@ cannot use the Vite plugin. Guide with the Next.js and Storybook recipes: [integ
 
 | export | what |
 |---|---|
-| `<Terrarium worker={() => Worker} devBar? children?>` | on mount (browser only; a no-op in SSR) creates the Worker, calls `startTerrarium`, on unmount `stopTerrarium`; reuses a Terrarium already on the page; children get the provider through context |
+| `<Terrarium worker={() => Worker} devBar? defer? children?>` | on mount (browser only; a no-op in SSR) creates the Worker, calls `startTerrarium`, on unmount `stopTerrarium`; reuses a Terrarium already on the page; children get the provider through context. `defer` renders the children only once the wallet is announced (one tick), for wallet libraries that reconnect during their first render (wagmi) |
 | `useTerrarium()` | the `WorkerProvider` (null until ready) |
 | `<DevBar provider>` | only the dev bar (with its Hide button and transaction explorer), mounted while the component is mounted |
 

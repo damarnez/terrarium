@@ -121,7 +121,7 @@ the [cookbook](docs/cookbook.md) (every feature, one example) and the [API refer
 | 🕸️ [Off-chain data](docs/http-and-subgraphs.md) | subgraphs and APIs answered from the chain; indexer down / behind / slow |
 | 🍳 [Cookbook](docs/cookbook.md) | every feature, one paste-able example |
 | 📖 [API reference](docs/api.md) | every option, `sim` member, RPC method, scenario field, plugin option, CLI flag, dev-bar test id |
-| 🔌 [Integrations](docs/integrations.md) | Vite plugin, `@terrariumlabs/react` for Next.js / Remix / CRA / Storybook, a plain script tag |
+| 🔌 [Integrations](docs/integrations.md) | Vite plugin (script tag or a generated React mount), `@terrariumlabs/react` for Next.js / Remix / CRA / Storybook, a plain script tag, a viem transport for wagmi |
 | 📦 [terrarium](packages/terrarium/README.md) · [@terrariumlabs/react](packages/terrarium-react/README.md) · [@terrariumlabs/evm](packages/terrarium-evm/README.md) | the library, the React mount, the wasm engine |
 | 🧭 [Roadmap](docs/roadmap.md) | what is not built yet, in order, and what is deliberately not planned |
 | 🛠️ [CLAUDE.md](CLAUDE.md) · [HANDOFF.md](HANDOFF.md) · [design investigation](docs/design-investigation.md) | operating manual and hard rules; the story pass by pass; the original investigation (historical) |
@@ -129,7 +129,7 @@ the [cookbook](docs/cookbook.md) (every feature, one example) and the [API refer
 ## 🧭 Your own protocol in four steps
 See [docs/tutorial-new-protocol.md](docs/tutorial-new-protocol.md). It starts with what a project looks like folder by
 folder and where every byte the chain executes comes from (fetched code, a recorded fork, or Solidity you compiled), then:
-install `@terrariumlabs/core`, get the protocol in (`npx terrarium fetch-code` for bytecode, `npx terrarium record --chain 1 --block N` for the state of a
+install `@terrariumlabs/core`, get the protocol in (`npx terrarium fetch-code` for bytecode, `npx terrarium import-anvil` for a deployment your own Foundry or Hardhat scripts made against Anvil, `npx terrarium record --chain 1 --block N` for the state of a
 chain at a block), write `terrarium.scenario.ts`, add the Vite plugin, run it headless. Every option and RPC method:
 [docs/api.md](docs/api.md).
 

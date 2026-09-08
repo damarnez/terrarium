@@ -15,6 +15,12 @@
 //       account (balance, nonce, code) and storage slot, runs your script against the fork (every account, code blob
 //       and slot the EVM touches is recorded), rolls the script's changes back (unless --keep) and dumps. The fixture
 //       is what a scenario's `fork: { blockNumber, offline: true }, restore: fixture.dump` consumes.
+//
+//   terrarium import-anvil --rpc <url> [--out fixture.json] [--skip 0xaddress]...
+//       Everything a running Anvil holds (anvil_dumpState: every account's code, storage, nonce and balance) as a fixture
+//       for ctx.install(): deploy your protocol with its own tooling (forge script, hardhat deploy) against Anvil and
+//       boot the Terrarium from the result, byte for byte. --skip leaves accounts out (Anvil's funded test accounts,
+//       which the Terrarium funds itself, are skipped by default).
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -30,7 +36,8 @@ const define = { 'process.env.DEBUG': 'undefined', 'process.env.TERRARIUM_DEBUG'
 const usage = `usage:
   terrarium build [--scenario terrarium.scenario.ts] [--out dist-terrarium]
   terrarium fetch-code <name=0xaddress>... --rpc <url> [--block N] [--chain ID] [--out fixture.json]
-  terrarium record [name=0xaddress]... --rpc <url> [--block N] [--chain ID] [--storage name:slot,slot] [--script warm.mjs] [--keep] [--out fixture.json]`;
+  terrarium record [name=0xaddress]... --rpc <url> [--block N] [--chain ID] [--storage name:slot,slot] [--script warm.mjs] [--keep] [--out fixture.json]
+  terrarium import-anvil --rpc <url> [--out fixture.json] [--skip 0xaddress]...`;
 const fail = (msg) => { console.error(msg); process.exit(1); };
 const hex = (n) => '0x' + BigInt(n).toString(16);
 /** a raw JSON-RPC call to --rpc */
@@ -74,6 +81,33 @@ if (cmd === 'build') {
   const out = args.out ?? 'fixture.json';
   writeFileSync(out, JSON.stringify(fixture, null, 2));
   console.log(`wrote ${out} (chain ${chainId}, block ${blockNumber})`);
+} else if (cmd === 'import-anvil') {
+  if (!args.rpc) fail(usage);
+  const { gunzipSync } = await import('node:zlib');
+  const { TEST_KEYS } = await import('../src/engine.js');
+  const { privateKeyToAccount } = await import('viem/accounts');
+  const chainId = await resolveChain();
+  const blockNumber = Number(await remote('eth_blockNumber'));
+  const raw = await remote('anvil_dumpState');
+  const bytes = Buffer.from(raw.slice(2), 'hex');
+  const dump = JSON.parse((bytes[0] === 0x1f && bytes[1] === 0x8b ? gunzipSync(bytes) : bytes).toString('utf8'));
+  // Anvil's ten test accounts are the Terrarium's own (funded at genesis): only their nonces matter, so a deployer's
+  // next transaction does not collide with what it already deployed
+  const testAccounts = new Set(TEST_KEYS.map((k) => privateKeyToAccount(k).address.toLowerCase()));
+  const skip = new Set([].concat(args.skip ?? []).map((a) => String(a).toLowerCase()));
+  const accounts = {}; let slots = 0, contracts = 0;
+  for (const [address, acct] of Object.entries(dump.accounts ?? {})) {
+    const a = address.toLowerCase(); if (skip.has(a) || !acct) continue;
+    const code = acct.code && acct.code !== '0x' ? acct.code : undefined;
+    const storage = acct.storage && Object.keys(acct.storage).length ? acct.storage : undefined;
+    if (testAccounts.has(a)) { if (Number(acct.nonce)) accounts[a] = { nonce: Number(acct.nonce) }; continue; }
+    accounts[a] = { nonce: Number(acct.nonce), balance: acct.balance, code, storage };
+    if (code) contracts++; slots += Object.keys(storage ?? {}).length;
+  }
+  const fixture = { source: `Anvil state imported with \`terrarium import-anvil\` via ${args.rpc}`, chainId, blockNumber, importedAt: new Date().toISOString(), accounts };
+  const out = args.out ?? 'fixture.json';
+  writeFileSync(out, JSON.stringify(fixture));
+  console.log(`wrote ${out}: ${contracts} contracts, ${Object.keys(accounts).length} accounts, ${slots} storage slots (chain ${chainId}, block ${blockNumber})`);
 } else if (cmd === 'record') {
   if (!args.rpc) fail(usage);
   const [{ createTerrarium }, viem] = await Promise.all([import('../src/engine.js'), import('viem')]);

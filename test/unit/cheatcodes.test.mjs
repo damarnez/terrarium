@@ -63,3 +63,26 @@ test("viem's createTestClient({ mode: 'anvil' }) drives the chain unchanged", as
   assert.equal(await t.pub.getStorageAt({ address: t.accounts[2], slot: '0x0' }), '0x' + '1'.padStart(64, '0'));
   await tc.setAutomine(false); await tc.setIntervalMining({ interval: 0 });
 });
+
+test('anvil_loadState: an Anvil state dump (object or gzipped hex) becomes code, storage, nonce and balance in one journaled call', async () => {
+  const t = await boot();
+  const a = '0x00000000000000000000000000000000000000bb', b = t.accounts[3];
+  const dump = { accounts: { [a]: { nonce: 1, balance: '0x0', code: '0x5f545f5260205ff3', storage: { '0x0': '0x2a', '0x1': '0x' + 'ff'.repeat(32) } }, [b]: { nonce: '0x7', balance: '0x64' } } };
+  const r = await t.rpc('anvil_loadState', [dump]);
+  assert.deepEqual(r, { accounts: 2, slots: 2 });
+  assert.equal(await t.rpc('eth_getCode', [a, 'latest']), '0x5f545f5260205ff3');
+  assert.equal(await t.rpc('eth_getStorageAt', [a, '0x0', 'latest']), '0x' + '2a'.padStart(64, '0'));
+  assert.equal(await t.rpc('eth_getStorageAt', [a, '0x1', 'latest']), '0x' + 'ff'.repeat(32));
+  assert.equal(await t.rpc('eth_getTransactionCount', [a, 'latest']), '0x1');
+  assert.equal(await t.rpc('eth_getTransactionCount', [b, 'latest']), '0x7');
+  assert.equal(await t.rpc('eth_getBalance', [b, 'latest']), '0x64');
+  // the contract runs: its code returns storage slot 0
+  assert.equal(await t.rpc('eth_call', [{ to: a, data: '0x' }, 'latest']), '0x' + '2a'.padStart(64, '0'));
+  // gzipped hex, as anvil_dumpState answers, under the hardhat alias
+  const { gzipSync } = await import('node:zlib');
+  const gz = '0x' + gzipSync(Buffer.from(JSON.stringify({ accounts: { [a]: { storage: { '0x2': '0x5' } } } }))).toString('hex');
+  assert.deepEqual(await t.rpc('hardhat_loadState', [gz]), { accounts: 1, slots: 1 });
+  assert.equal(await t.rpc('eth_getStorageAt', [a, '0x2', 'latest']), '0x' + '5'.padStart(64, '0'));
+  assert.equal(t.sim.journal.filter((e) => e.method === 'anvil_loadState' || e.method === 'hardhat_loadState').length, 2, 'journaled: it replays and persists');
+  await assert.rejects(t.rpc('anvil_loadState', [42]), /expected an Anvil state dump/);
+});

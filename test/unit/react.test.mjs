@@ -13,6 +13,7 @@ test('SSR: renders children only, does not touch a Worker, useTerrarium is null'
   assert.equal(html, '<b>app</b><i>null</i>');
   assert.equal(created, 0, 'no Worker during SSR');
   assert.equal(renderToString(createElement(DevBar, { provider: null })), '');
+  assert.equal(renderToString(createElement(Terrarium, { worker: () => ({}), defer: true }, createElement('b', null, 'app'))), '<b>app</b>', 'defer waits for a wallet only in a browser');
 });
 
 test('inject: startTerrarium announces once per instance, stopTerrarium undoes it (a second start replaces the first)', async () => {
