@@ -208,3 +208,10 @@ fork replay. Verified: `npm run e2e`, `npm run test:uniswap`, `npm run test:fork
 - Tests: `test/unit/explorer.test.mjs` (engine list, statuses, paging, persistence; runtime decoding + labels); the e2e opens
   the explorer, checks a decoded swap row and its events, hides and restores the bar. Frogpond's scenario declares its ABIs
   and labels (router, pair, WETH, factory, PEPE, You, Treasury, the frogs).
+- **Review pass (same day): less to write.** The first cut made Frogpond list nine standard events by hand and duplicate
+  addresses into a `labels` function. Now: `known-abi.ts` (ERC-20/721/1155/4626, WETH, Uniswap V2, Ownable, proxies, OZ
+  errors) decodes the common case with no config; `ctx.label(address, name, abi?)` names an address where setup learns it
+  and gives its ABI, tried first for that address; `install(fixture)` names contracts by their fixture keys; `labels` is a
+  static map only. Event decoding tries every candidate with the log's topic0 (ERC-20 vs ERC-721 Transfer). `@terrariumlabs/react`
+  gained `useTransactions()` for custom dev tools. Frogpond's config shrank to `abis: [routerAbi, PEPE.abi]` + two labels.
+  Also `devBar: 'hidden'` (plugin, `startTerrarium`, React, `--devbar hidden`): the bar starts as the leaf; Frogpond uses it.

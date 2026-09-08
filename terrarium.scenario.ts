@@ -13,6 +13,7 @@ const routerAbi = parseAbi([
   'function addLiquidityETH(address token, uint256 amountTokenDesired, uint256 amountTokenMin, uint256 amountETHMin, address to, uint256 deadline) payable returns (uint256, uint256, uint256)',
   'function swapExactETHForTokens(uint256 amountOutMin, address[] path, address to, uint256 deadline) payable returns (uint256[])',
   'function swapExactTokensForETH(uint256 amountIn, uint256 amountOutMin, address[] path, address to, uint256 deadline) returns (uint256[])',
+  'function removeLiquidityETH(address token, uint256 liquidity, uint256 amountTokenMin, uint256 amountETHMin, address to, uint256 deadline) returns (uint256, uint256)',
 ]);
 const factoryAbi = parseAbi(['function getPair(address, address) view returns (address)']);
 const pairAbi = parseAbi(['function getReserves() view returns (uint112, uint112, uint32)']);
@@ -20,26 +21,16 @@ const pairAbi = parseAbi(['function getReserves() view returns (uint112, uint112
 const SUBGRAPH = import.meta.env.VITE_SUBGRAPH_URL ?? 'https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v2';
 const swapEvent = parseAbi(['event Swap(address indexed sender, uint256 amount0In, uint256 amount1In, uint256 amount0Out, uint256 amount1Out, address indexed to)']);
 const SWAP_TOPIC = keccak256(toHex('Swap(address,uint256,uint256,uint256,uint256,address)'));
-// what the transaction explorer in the dev bar decodes: the pair's and WETH's events, plus the router calls and PEPE above
-const explorerAbi = parseAbi([
-  'event Transfer(address indexed from, address indexed to, uint256 value)',
-  'event Approval(address indexed owner, address indexed spender, uint256 value)',
-  'event Sync(uint112 reserve0, uint112 reserve1)',
-  'event Mint(address indexed sender, uint256 amount0, uint256 amount1)',
-  'event Burn(address indexed sender, uint256 amount0, uint256 amount1, address indexed to)',
-  'event Deposit(address indexed dst, uint256 wad)',
-  'event Withdrawal(address indexed src, uint256 wad)',
-  'function removeLiquidityETH(address token, uint256 liquidity, uint256 amountTokenMin, uint256 amountETHMin, address to, uint256 deadline) returns (uint256, uint256)',
-  'function approve(address spender, uint256 value) returns (bool)',
-]);
 
 export default defineScenario({
   chainId: Number(import.meta.env.VITE_CHAIN_ID ?? 31337),
   seed: 1337,
   persist: 'frogpond',
   actorsLabel: 'Pond life',
-  abis: [routerAbi, pairAbi, swapEvent, explorerAbi, PEPE.abi],
-  labels: (ctx) => ({ [ROUTER]: 'Uniswap V2 Router', [TOKEN]: 'PEPE', [ctx.state.weth]: 'WETH', [ctx.state.factory]: 'Uniswap V2 Factory', [ctx.state.pair]: 'PEPE/WETH pair', [ctx.accounts[0]]: 'You', [ctx.accounts[9]]: 'Treasury', [ctx.accounts[6]]: 'Frog 1', [ctx.accounts[7]]: 'Frog 2', [ctx.accounts[8]]: 'Frog 3 (fader)' }),
+  // the transaction explorer: standard events (Transfer, Swap, Sync, Deposit…) decode on their own; these add the router's calls
+  // and PEPE's custom errors. Addresses discovered in setup are named there with ctx.label().
+  abis: [routerAbi, PEPE.abi],
+  labels: { [ROUTER]: 'Uniswap V2 Router', [TOKEN]: 'PEPE' },
 
   async setup(ctx) {
     const { pub, accounts, state } = ctx;
@@ -48,6 +39,8 @@ export default defineScenario({
     await ctx.install(uniswap);
     state.weth = await pub.readContract({ address: ROUTER, abi: routerAbi, functionName: 'WETH' });
     state.factory = await pub.readContract({ address: ROUTER, abi: routerAbi, functionName: 'factory' });
+    ctx.label(state.weth, 'WETH'); ctx.label(state.factory, 'Uniswap V2 Factory');
+    ctx.label(accounts[0], 'You'); ctx.label(accounts[9], 'Treasury'); accounts.slice(6, 9).forEach((a, i) => ctx.label(a, i === 2 ? 'Frog 3 (fader)' : `Frog ${i + 1}`));
     // 2. your contract: PEPE, the treasury's first tx, so its address is deterministic and lives in .env like on mainnet
     if ((await ctx.codeAt(TOKEN)) === '0x') {
       const expected = getContractAddress({ from: treasury, nonce: BigInt(await pub.getTransactionCount({ address: treasury })) });
@@ -60,6 +53,7 @@ export default defineScenario({
       for (const a of accounts.slice(0, 9)) await ctx.wait(t.writeContract({ address: TOKEN, abi: PEPE.abi, functionName: 'transfer', args: [a, parseEther('50000000')] }));
     }
     state.pair = await pub.readContract({ address: state.factory, abi: factoryAbi, functionName: 'getPair', args: [TOKEN, state.weth] });
+    ctx.label(state.pair, 'PEPE/WETH pair', pairAbi);
     state.tokenIsToken0 = TOKEN.toLowerCase() < state.weth.toLowerCase();
     state.frogs = accounts.slice(6, 9);
   },

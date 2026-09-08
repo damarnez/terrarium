@@ -5,7 +5,10 @@ import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseEther } from 'viem';
 import { runScenario } from '@terrariumlabs/core/worker';
+import { readFileSync } from 'node:fs';
 import { boot, deployPepe, PEPE, GENESIS_TS, memoryStorage } from './helpers.mjs';
+
+const UNISWAP = JSON.parse(readFileSync(new URL('../../packages/terrarium/fixtures/uniswap-v2-mainnet.json', import.meta.url), 'utf8'));
 
 before(() => { globalThis.postMessage = () => {}; });
 
@@ -54,27 +57,34 @@ test('engine: newest first, status words (success / reverted / dropped / pending
   t.sim.stop(); t2.sim.stop();
 });
 
-test('runtime: terrarium_transactions decodes calls, events and custom errors with `abis`, names addresses with `labels`', async () => {
-  const sim = await runScenario({ chainId: 31337, persist: false, clock: 1_700_000_000, abis: [PEPE.abi],
-    labels: (ctx) => ({ [ctx.state.pepe]: 'PEPE', [ctx.accounts[1]]: 'Alice' }),
+test('runtime: decodes with the known ABI alone, ctx.label(address, name, abi) adds a contract\'s own ABI, install() names fixture contracts', async () => {
+  const sim = await runScenario({ chainId: 31337, persist: false, clock: 1_700_000_000,
+    labels: { '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266': 'You' },      // static: known up front
     async setup(ctx) {
+      await ctx.install(UNISWAP);                                          // fixture keys become names: router, factory, weth
       const me = ctx.wallet(ctx.accounts[0]);
       const r = await ctx.wait(me.deployContract({ abi: PEPE.abi, bytecode: PEPE.bytecode, args: [parseEther('10')] }));
       ctx.state.pepe = r.contractAddress;
+      ctx.label(r.contractAddress, 'PEPE', PEPE.abi);                     // discovered in setup: name + ABI (custom errors)
+      ctx.label(ctx.accounts[1], 'Alice');
       await ctx.wait(me.writeContract({ address: r.contractAddress, abi: PEPE.abi, functionName: 'transfer', args: [ctx.accounts[1], parseEther('3')] }));
-      // Alice sends more than she has: reverts with InsufficientBalance(requested, available)
       await ctx.wait(ctx.wallet(ctx.accounts[1]).writeContract({ address: r.contractAddress, abi: PEPE.abi, functionName: 'transfer', args: [ctx.accounts[0], parseEther('5')], gas: 100000n }));
-      // a call the ABIs do not know: raw selector shown
       await ctx.wait(ctx.sim.sendAs(ctx.accounts[2], { to: r.contractAddress, data: '0xdeadbeef', gas: '0x186a0' }));
+      await ctx.wait(ctx.sim.sendAs(ctx.accounts[2], { to: UNISWAP.contracts.weth.address, value: '0x1', data: '0xd0e30db0', gas: '0x186a0' }));   // WETH deposit(): known ABI, both call and event
     } });
-  const { total, labels, transactions: [unknown, reverted, transfer, deploy] } = await sim.provider.request({ method: 'terrarium_transactions', params: [{}] });
-  assert.equal(total, 4);
-  assert.equal(labels[sim.accounts[1].address.toLowerCase()], 'Alice'); assert.equal(labels[sim.accounts[0].address.toLowerCase()], 'Account #0'); assert.equal(labels[transfer.to.toLowerCase()], 'PEPE');
+  const { total, labels, transactions: [weth, unknown, reverted, transfer, deploy] } = await sim.provider.request({ method: 'terrarium_transactions', params: [{}] });
+  assert.equal(total, 5);
+  assert.equal(labels[sim.accounts[0].address.toLowerCase()], 'You', 'static config label'); assert.equal(labels[sim.accounts[1].address.toLowerCase()], 'Alice'); assert.equal(labels[sim.accounts[2].address.toLowerCase()], 'Account #2');
+  assert.equal(labels[transfer.to.toLowerCase()], 'PEPE'); assert.equal(labels[UNISWAP.contracts.router.address.toLowerCase()], 'router', 'named by its fixture key');
   assert.deepEqual(deploy.method, { name: 'create', args: [] });
+  // ERC-20 transfer + Transfer: no abis configured for them beyond the address ABI; the known set would do too
   assert.equal(transfer.method.name, 'transfer'); assert.deepEqual(transfer.method.args, [sim.accounts[1].address, parseEther('3').toString()]);
-  assert.equal(transfer.logs[0].decoded.name, 'Transfer'); assert.deepEqual(transfer.logs[0].decoded.args, { from: sim.accounts[0].address, to: sim.accounts[1].address, value: parseEther('3').toString() });
+  assert.deepEqual(transfer.logs[0].decoded, { name: 'Transfer', args: { from: sim.accounts[0].address, to: sim.accounts[1].address, value: parseEther('3').toString() } });
+  // the custom error comes from the address's own ABI
   assert.equal(reverted.status, 'reverted'); assert.deepEqual(reverted.revert, { name: 'InsufficientBalance', args: [parseEther('5').toString(), parseEther('3').toString()] });
-  assert.equal(reverted.logs.length, 0);
-  assert.deepEqual(unknown.method, { name: null, selector: '0xdeadbeef' }); assert.equal(unknown.status, 'reverted'); assert.equal(unknown.revert, null, 'empty revert data: nothing to decode');
+  assert.deepEqual(unknown.method, { name: null, selector: '0xdeadbeef' }); assert.equal(unknown.revert, null);
+  // WETH: nothing configured at all, decoded by the known ABI (call and event)
+  assert.deepEqual(weth.method, { name: 'deposit', args: [] }); assert.equal(labels[weth.to.toLowerCase()], 'weth');
+  assert.deepEqual(weth.logs[0].decoded, { name: 'Deposit', args: { dst: sim.accounts[2].address, wad: '1' } });
   sim.stop();
 });

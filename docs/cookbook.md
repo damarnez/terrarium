@@ -409,12 +409,21 @@ Wallet" like any extension.
 
 The dev bar's **Transactions** button opens a panel listing every transaction on the chain, newest first, like a block
 explorer: status, block, time, hash, method, from, to, value, gas, events. A row expands to the receipt, the decoded call and
-its arguments, the raw input, the revert reason and every event. Give the scenario the ABIs and the names, and it decodes:
+its arguments, the raw input, the revert reason and every event.
+
+Standard things decode with no configuration: ERC-20/721/1155/4626 transfers, approvals, deposits and withdrawals, WETH,
+Uniswap V2 `Swap`/`Sync`/`Mint`/`Burn`, Ownable, proxies, OpenZeppelin's custom errors, `Error(string)` and `Panic`. Contracts
+installed from a fixture are named by their fixture keys. For the rest, name an address where you learn it, with its ABI:
 
 ```ts
 export default defineScenario({
-  abis: [routerAbi, pairAbi, PEPE.abi],                          // calls, events and custom errors decode with these
-  labels: (ctx) => ({ [ROUTER]: 'Uniswap V2 Router', [TOKEN]: 'PEPE', [ctx.state.pair]: 'PEPE/WETH pair', [ctx.accounts[0]]: 'You' }),
+  abis: [routerAbi, PEPE.abi],                                   // protocol-specific calls and custom errors
+  labels: { [ROUTER]: 'Uniswap V2 Router', [TOKEN]: 'PEPE' },   // addresses known up front
+  async setup(ctx) {
+    const pair = await ctx.pub.readContract({ address: factory, abi: factoryAbi, functionName: 'getPair', args: [TOKEN, weth] });
+    ctx.label(pair, 'PEPE/WETH pair', pairAbi);                 // discovered here: name + ABI in one line
+    ctx.label(ctx.accounts[0], 'You');
+  },
 });
 ```
 
@@ -425,4 +434,8 @@ const { total, transactions } = await sim.provider.request({ method: 'terrarium_
 transactions[0];   // { hash, from, to, value, input, status: 'reverted', receipt, timestamp, error, revertData, method: { name, args }, revert: { name, args }, logs: [{ ..., decoded: { name, args } }] }
 ```
 
-**Hide** collapses the bar to a leaf at the bottom right (remembered across reloads); the chain keeps running.
+In a React dev tool of your own (`@terrariumlabs/react`): `const txs = useTransactions({ limit: 20 })`, the same shape, polled.
+
+**Hide** collapses the bar to a leaf at the bottom right (remembered across reloads); the chain keeps running. To start that
+way: `terrarium({ devBar: 'hidden' })` in the Vite plugin, `startTerrarium(worker, { devBar: 'hidden' })`, `<Terrarium devBar="hidden">`,
+or `npx terrarium build --devbar hidden`. A Hide/Show click always wins over the default.

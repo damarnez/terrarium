@@ -41,6 +41,9 @@ export interface ScenarioContext {
    *  writes whole accounts (code, storage, nonce, balance) through `anvil_loadState`: contracts that already have code
    *  are skipped, accounts without code (the deployer's nonce, funded EOAs) are only written on a fresh chain */
   install(fixture: Fixture | AnvilStateFixture): Promise<void>;
+  /** name an address in the transaction explorer and, optionally, give the ABI that decodes calls to it, its events and its
+   *  custom errors: `ctx.label(pair, 'PEPE/WETH pair', pairAbi)`. `install(fixture)` labels contracts by their fixture keys */
+  label(address: Address | string, name: string, abi?: Abi): void;
   /** ask the page to reload: for a method that reset or rebuilt the chain and wants the dapp to start over on it */
   reload(): void;
   /** a bag for whatever setup() discovers (addresses...) that actors and status() need later */
@@ -103,12 +106,13 @@ export interface ScenarioConfig {
    *  intercepted for matching URLs, the handler runs here in the Worker with `ctx`, everything else goes to the network.
    *  http: [{ match: 'https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v2', graphql: { swaps: (ctx, q) => … } }] */
   http?: HttpRoute[];
-  /** ABIs used to decode calls, events and revert reasons in `terrarium_transactions` (the dev bar's transaction explorer);
-   *  anything they do not cover is shown raw (selector, topics, data) */
+  /** extra ABIs for the transaction explorer (`terrarium_transactions`): calls, events and custom errors decode with an
+   *  address's own ABI (`ctx.label(address, name, abi)`) first, then these, then the built-in set of standard events, functions
+   *  and errors (ERC-20/721/1155/4626, WETH, Uniswap V2, Ownable, proxies, OpenZeppelin errors). Anything left is shown raw */
   abis?: Abi[];
-  /** names for addresses in the explorer (`{ [address]: 'Uniswap V2 Router' }`), or a function of ctx for addresses only
-   *  known after setup. The sim's accounts are labelled `Account #i` unless you name them */
-  labels?: Record<string, string> | ((ctx: ScenarioContext) => Record<string, string>);
+  /** names for addresses known up front (`{ [ROUTER]: 'Uniswap V2 Router' }`); for addresses discovered in setup use
+   *  `ctx.label(address, name)`. The sim's accounts are `Account #i` unless named */
+  labels?: Record<string, string>;
 }
 
 export function defineScenario(config: ScenarioConfig): ScenarioConfig { return config; }

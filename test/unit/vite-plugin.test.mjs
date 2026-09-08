@@ -20,6 +20,15 @@ test('enabled: writes .terrarium/{inject,worker}.ts and injects one module scrip
   assert.equal(plugin.transformIndexHtml.order, 'pre');
 });
 
+test('devBar option: the generated inject entry passes it to startTerrarium', () => {
+  for (const [opt, expected] of [[undefined, /\{ type: 'module' \}\)\);\n$/], ['hidden', /\{ type: 'module' \}\), \{ devBar: "hidden" \}\);/], [false, /, \{ devBar: false \}\);/]]) {
+    const root = mkdtempSync(join(tmpdir(), 'terrarium-plugin-'));
+    const plugin = terrarium(opt === undefined ? {} : { devBar: opt });
+    plugin.configResolved(config(root));
+    assert.match(readFileSync(join(root, '.terrarium/inject.ts'), 'utf8'), expected);
+  }
+});
+
 test('a custom scenario path is resolved relative to the root', () => {
   const root = mkdtempSync(join(tmpdir(), 'terrarium-plugin-'));
   const plugin = terrarium({ scenario: 'scenarios/other.scenario.ts' });

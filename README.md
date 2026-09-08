@@ -68,7 +68,8 @@ own UI. The [tutorial](docs/tutorial-new-protocol.md) takes you through it; the 
 npm install            # Node 22+. No Rust needed: the wasm engine ships prebuilt in packages/terrarium-evm/pkg
 npm run dev            # http://localhost:5173 → "Connect wallet" → "Terrarium Wallet"
 ```
-Add liquidity, swap, remove liquidity through the real router. In the dark bar at the bottom: mine blocks, shift
+Add liquidity, swap, remove liquidity through the real router. Click the leaf at the bottom right for the dev bar (Frogpond
+starts with it collapsed; `terrarium({ devBar: 'hidden' })` in `vite.config.ts`). In the dark bar: mine blocks, shift
 time, switch to 3 s blocks, snapshot and revert (chain **and** UI history come back), turn on **Pond life** (bot
 frogs trade against you, one fades your swaps), make the wallet **reject** the next signature, answer **slowly**, or
 deliver receipts **late**, take the dapp's **indexer down** or put it three blocks **behind** (the Uniswap V2 subgraph

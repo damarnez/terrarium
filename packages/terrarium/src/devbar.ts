@@ -56,7 +56,12 @@ const formatGwei = (hex: string | null | undefined) => { if (!hex) return '0'; c
 const fmtArgs = (args: any): string => Array.isArray(args) ? args.map(fmtArgs).join(', ') : args && typeof args === 'object' ? Object.entries(args).map(([k, v]) => `${k}: ${fmtArgs(v)}`).join(', ') : String(args);
 const time = (hex: string | null) => (hex ? new Date(Number(BigInt(hex)) * 1000).toLocaleTimeString() : '');
 
-export function mountDevBar(provider: Provider) {
+export interface DevBarOptions {
+  /** start collapsed to the leaf (default false). A Hide/Show click is remembered in localStorage and overrides this */
+  hidden?: boolean;
+}
+
+export function mountDevBar(provider: Provider, opts: DevBarOptions = {}) {
   if (document.getElementById('terrarium-devbar')) return;
   const rpc = (method: string, params: unknown[] = []) => provider.request({ method, params });
   const bar = document.createElement('footer');
@@ -133,7 +138,7 @@ export function mountDevBar(provider: Provider) {
 
   // ---- hide / show --------------------------------------------------------------------------------------------------
   const pill = el(`<button id="terrarium-devbar-show" data-testid="show" title="Show the Terrarium dev bar" hidden>🌱</button>`);
-  const remember = (hidden: boolean) => { try { hidden ? localStorage.setItem(HIDDEN_KEY, '1') : localStorage.removeItem(HIDDEN_KEY); } catch {} };
+  const remember = (hidden: boolean) => { try { localStorage.setItem(HIDDEN_KEY, hidden ? '1' : '0'); } catch {} };
   const setHidden = (hidden: boolean) => {
     bar.hidden = hidden; pill.hidden = !hidden;
     if (hidden) { panel.hidden = true; bTxs.classList.remove('on'); }
@@ -150,8 +155,8 @@ export function mountDevBar(provider: Provider) {
     btn('+1 hour', 'plus-hour', 'Move the chain clock forward one hour', async () => { await rpc('evm_increaseTime', [3600]); await rpc('evm_mine'); }),
     bMining, bSnap, bActors, bReject, bLatency, bLag, bTxs, bReset, bHide, panel);
   document.body.append(bar, pill);
-  let startHidden = false; try { startHidden = localStorage.getItem(HIDDEN_KEY) === '1'; } catch {}
-  setHidden(startHidden);
+  let startHidden = !!opts.hidden; try { const v = localStorage.getItem(HIDDEN_KEY); if (v !== null) startHidden = v === '1'; } catch {}
+  bar.hidden = startHidden; pill.hidden = !startHidden; document.body.style.paddingBottom = startHidden ? '' : '64px';   // apply without remembering: the default is not a choice
 
   const refresh = async () => {
     if (!document.getElementById('terrarium-devbar')) return;   // unmounted: stop polling

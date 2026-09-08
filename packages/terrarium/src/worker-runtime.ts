@@ -1,6 +1,7 @@
 // worker-runtime.ts — runs a scenario inside the Worker: boot the chain, run setup(), wire the actors, expose the
 // generic terrarium_* controls, and serve the provider to the page over postMessage.
-import { createPublicClient, createWalletClient, custom, defineChain, decodeErrorResult, decodeEventLog, decodeFunctionData, toHex, type Abi, type Address, type Hex } from 'viem';
+import { createPublicClient, createWalletClient, custom, defineChain, decodeErrorResult, decodeEventLog, decodeFunctionData, toEventSelector, toHex, type Abi, type Address, type Hex } from 'viem';
+import { KNOWN_ABI } from './known-abi.ts';
 // @ts-ignore — the engine is plain ESM JavaScript
 import { createTerrarium, indexedDBStorage } from './engine.js';
 import { serveProvider } from './bridge.ts';
@@ -24,6 +25,8 @@ export async function runScenario(config: ScenarioConfig) {
   const chain = defineChain({ id: chainId, name: 'Terrarium', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: { default: { http: [] } } });
   const pub = createPublicClient({ chain, transport: custom(sim.provider), pollingInterval: 20 });
   const rpc = (method: string, params: unknown[] = []) => sim.provider.request({ method, params });
+  // what the explorer knows about addresses: a name and/or an ABI, from ctx.label() and from install()'s fixture keys
+  const registry = new Map<string, { name?: string; auto?: boolean; abi?: Abi }>();
   const ctx: ScenarioContext = {
     sim, chainId, rpc, pub,
     accounts: sim.accounts.map((a: any) => a.address as Address),
@@ -48,8 +51,12 @@ export async function runScenario(config: ScenarioConfig) {
         if (Object.keys(accounts).length) await rpc('anvil_loadState', [{ accounts }]);
         return;
       }
-      for (const c of Object.values(fixture.contracts) as any[]) if ((await ctx.codeAt(c.address as Address)) === '0x') await rpc('anvil_setCode', [c.address, c.code]);
+      for (const [key, c] of Object.entries(fixture.contracts) as [string, any][]) {
+        const k = c.address.toLowerCase(); if (!registry.get(k)?.name) registry.set(k, { ...registry.get(k), name: key, auto: true });   // the explorer names it by its fixture key
+        if ((await ctx.codeAt(c.address as Address)) === '0x') await rpc('anvil_setCode', [c.address, c.code]);
+      }
     },
+    label: (address, name, abi) => { const k = address.toLowerCase(); registry.set(k, { ...registry.get(k), name, auto: false, ...(abi ? { abi } : {}) }); },
     // the page reloads (a scenario that reset the chain, or rebuilt it, wants the dapp to start over on the new state)
     reload: () => { if (typeof (globalThis as any).postMessage === 'function') (globalThis as any).postMessage({ event: 'reload', payload: null }); },
     state: {},
@@ -83,25 +90,30 @@ export async function runScenario(config: ScenarioConfig) {
   // ---- generic controls, reachable through the provider like any RPC method -----------------------------------
   sim.addMethod('terrarium_actors', async (on?: boolean) => { await actors.toggle(on ?? !actors.enabled); return actors.enabled; });
   sim.addMethod('terrarium_status', async () => ({ chainId, engine: sim.engine, block: toHex(sim.blockNumber), accounts: ctx.accounts, actors: actors.enabled, actorsLabel: config.actorsLabel ?? 'Actors', hasActors: toggled.length > 0, wallet: { ...sim.wallet }, controls: config.controls ?? [], restoredFromPersistence: sim.restoredFromPersistence, localBlocks: Number(sim.blockNumber) - (config.fork ? config.fork.blockNumber + 1 : 0), http: { routes: httpRoutes.length, hits: httpHits }, fork: config.fork ? { blockNumber: config.fork.blockNumber, offline: !!config.fork.offline, misses: sim.offlineMisses.length } : null, ...(await config.status?.(ctx)) }));
-  // ---- the transaction explorer: the engine's list, decoded with the scenario's ABIs and labelled -------------------
-  const abi = (config.abis ?? []).flat() as Abi;
+  // ---- the transaction explorer: the engine's list, decoded (address's own ABI, then `abis`, then the known set) and labelled
+  const configAbi = (config.abis ?? []).flat() as Abi;
+  const abisFor = (address: string | null): Abi[] => [registry.get((address ?? '').toLowerCase())?.abi, configAbi, KNOWN_ABI].filter((a): a is Abi => !!a && a.length > 0);
   const labelsOf = () => {
     const out: Record<string, string> = {};
     ctx.accounts.forEach((a, i) => { out[a.toLowerCase()] = `Account #${i}`; });
-    const own = typeof config.labels === 'function' ? config.labels(ctx) : config.labels ?? {};
-    for (const [a, name] of Object.entries(own)) if (a) out[a.toLowerCase()] = name;
+    for (const [a, e] of registry) if (e.name && e.auto) out[a] = e.name;                            // fixture keys
+    for (const [a, name] of Object.entries(config.labels ?? {})) if (a) out[a.toLowerCase()] = name;   // the config
+    for (const [a, e] of registry) if (e.name && !e.auto) out[a] = e.name;                           // ctx.label() wins
     return out;
   };
   const plain = (v: any): any => typeof v === 'bigint' ? v.toString() : Array.isArray(v) ? v.map(plain) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, plain(x)])) : v;
-  const attempt = <T,>(fn: () => T): T | null => { try { return fn(); } catch { return null; } };
+  const first = <T,>(items: readonly any[], fn: (item: any) => T | null): T | null => { for (const item of items) { try { const r = fn(item); if (r) return r; } catch {} } return null; };
+  const decodeCall = (to: string, data: Hex) => first(abisFor(to), (abi: Abi) => { const d = decodeFunctionData({ abi, data }); return { name: d.functionName, args: plain(d.args ?? []) }; });
+  const decodeRevert = (to: string | null, data: Hex) => first(abisFor(to), (abi: Abi) => { const d = decodeErrorResult({ abi, data }); return { name: d.errorName, args: plain(d.args ?? []) }; });
+  // events: every candidate with the log's topic0 is tried (ERC-20 and ERC-721 Transfer share it and differ in indexed params)
+  const decodeLog = (l: { address: string; topics: Hex[]; data: Hex }) => first(abisFor(l.address), (abi: Abi) => first(abi.filter((i) => i.type === 'event' && toEventSelector(i as any) === l.topics[0]), (item: any) => { const d: any = decodeEventLog({ abi: [item], data: l.data, topics: l.topics as [Hex, ...Hex[]] }); return { name: d.eventName as string, args: plain(d.args ?? {}) }; }));
   sim.addMethod('terrarium_transactions', (opts?: { limit?: number; before?: string }) => {
     const { total, transactions } = sim.transactions(opts ?? {});
-    const labels = labelsOf();
-    return { total, labels, transactions: transactions.map((t: any) => {
-      const call = t.to && t.input && t.input.length >= 10 && abi.length ? attempt(() => decodeFunctionData({ abi, data: t.input })) : null;
-      const method = !t.to ? { name: 'create', args: [] } : call ? { name: call.functionName, args: plain(call.args ?? []) } : t.input && t.input.length >= 10 ? { name: null, selector: t.input.slice(0, 10) } : null;
-      const revert = t.status === 'reverted' && t.revertData && t.revertData !== '0x' ? attempt(() => { const d = decodeErrorResult({ abi, data: t.revertData }); return { name: d.errorName, args: plain(d.args ?? []) }; }) : null;
-      const logs = (t.receipt?.logs ?? []).map((l: any) => { const d = abi.length ? attempt(() => decodeEventLog({ abi, data: l.data, topics: l.topics })) : null; return { ...l, decoded: d ? { name: d.eventName, args: plain(d.args ?? {}) } : null }; });
+    return { total, labels: labelsOf(), transactions: transactions.map((t: any) => {
+      const hasData = t.input && t.input.length >= 10;
+      const method = !t.to ? { name: 'create', args: [] } : hasData ? decodeCall(t.to, t.input) ?? { name: null, selector: t.input.slice(0, 10) } : null;
+      const revert = t.status === 'reverted' && t.revertData && t.revertData !== '0x' ? decodeRevert(t.to, t.revertData) : null;
+      const logs = (t.receipt?.logs ?? []).map((l: any) => ({ ...l, decoded: decodeLog(l) }));
       return { ...t, method, revert, logs };
     }) };
   });

@@ -47,7 +47,7 @@ npm install -D @terrariumlabs/core
 // vite.config.ts
 import { terrarium } from '@terrariumlabs/core/vite';
 export default defineConfig({
-  plugins: [react(), terrarium()],                 // terrarium({ scenario: 'other.scenario.ts' })
+  plugins: [react(), terrarium()],                 // terrarium({ scenario: 'other.scenario.ts', devBar: 'hidden' | false })
   define: { 'process.env.DEBUG': 'undefined', 'process.env.TERRARIUM_DEBUG': 'undefined' },
   build: { target: 'es2022' }, worker: { format: 'es' },
 });
@@ -114,9 +114,10 @@ already on the page (the Vite plugin, an injected script), it reuses it.
 > wagmi (and libraries like it) reconnect the last wallet synchronously during their first render. A wallet announced from an
 > effect a moment later is missed, and every reload comes up disconnected. Render the app as the component's children with
 > `defer` (`<Terrarium worker={…} defer><App /></Terrarium>`): they render one tick later, once the wallet is on the page.
-> The generated mount of the Vite plugin's `mount: 'react'` does this already. Its children can call `useTerrarium()` to get the
-provider for their own dev tools, and `<DevBar provider={…} />` mounts only the bar over any provider that answers the
-`terrarium_*` methods. Full surface: [api.md](api.md#terrariumlabsreact).
+> The generated mount of the Vite plugin's `mount: 'react'` does this already.
+
+Its children can call `useTerrarium()` to get the provider for their own dev tools, and `<DevBar provider={…} />` mounts only
+the bar over any provider that answers the `terrarium_*` methods. Full surface: [api.md](api.md#terrariumlabsreact).
 
 ## ▲ Next.js
 

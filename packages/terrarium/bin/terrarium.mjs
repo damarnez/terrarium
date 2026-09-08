@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // terrarium — the CLI.
 //
-//   terrarium build [--scenario terrarium.scenario.ts] [--out dist-terrarium]
+//   terrarium build [--scenario terrarium.scenario.ts] [--out dist-terrarium] [--devbar hidden|off]
 //       One injectable classic script (dist-terrarium/terrarium.js): chain Worker + wallet + dev bar. Inject it into
 //       any page (Playwright addInitScript, a <script> tag, a bookmarklet) — your dapp built without the Terrarium,
 //       a Storybook, someone else's dapp.
@@ -34,7 +34,7 @@ for (let i = 0; i < rest.length; i++) {
 }
 const define = { 'process.env.DEBUG': 'undefined', 'process.env.TERRARIUM_DEBUG': 'undefined' };
 const usage = `usage:
-  terrarium build [--scenario terrarium.scenario.ts] [--out dist-terrarium]
+  terrarium build [--scenario terrarium.scenario.ts] [--out dist-terrarium] [--devbar hidden|off]
   terrarium fetch-code <name=0xaddress>... --rpc <url> [--block N] [--chain ID] [--out fixture.json]
   terrarium record [name=0xaddress]... --rpc <url> [--block N] [--chain ID] [--storage name:slot,slot] [--script warm.mjs] [--keep] [--out fixture.json]
   terrarium import-anvil --rpc <url> [--out fixture.json] [--skip 0xaddress]...`;
@@ -60,7 +60,7 @@ if (cmd === 'build') {
   const scenario = '/' + relative(root, resolve(root, args.scenario ?? 'terrarium.scenario.ts')).split(sep).join('/');
   const dir = resolve(root, '.terrarium'); mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'worker.ts'), `import scenario from '${scenario}';\nimport { runScenario } from '@terrariumlabs/core/worker';\nrunScenario(scenario);\n`);
-  writeFileSync(join(dir, 'inject-bundle.ts'), `import { startTerrarium } from '@terrariumlabs/core/inject';\ndeclare const __TERRARIUM_WORKER_SRC__: string;\nstartTerrarium(new Worker(URL.createObjectURL(new Blob([__TERRARIUM_WORKER_SRC__], { type: 'text/javascript' })), { type: 'module' }));\n`);
+  writeFileSync(join(dir, 'inject-bundle.ts'), `import { startTerrarium } from '@terrariumlabs/core/inject';\ndeclare const __TERRARIUM_WORKER_SRC__: string;\nstartTerrarium(new Worker(URL.createObjectURL(new Blob([__TERRARIUM_WORKER_SRC__], { type: 'text/javascript' })), { type: 'module' })${args.devbar === 'hidden' ? ", { devBar: 'hidden' }" : args.devbar === 'off' ? ', { devBar: false }' : ''});\n`);
   await build({ root, configFile: false, logLevel: 'warn', define, build: { outDir: out, emptyOutDir: true, target: 'es2022', minify: true, lib: { entry: '.terrarium/worker.ts', formats: ['es'], fileName: () => 'terrarium.worker.js' }, rollupOptions: { output: { codeSplitting: false } } } });
   const outDir = resolve(root, out);
   const workerSrc = readFileSync(join(outDir, 'terrarium.worker.js'), 'utf8');

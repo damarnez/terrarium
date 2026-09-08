@@ -47,6 +47,23 @@ export function Terrarium({ worker, devBar = true, defer = false, children }: Te
  *  `useTerrarium()?.request({ method: 'terrarium_status' })`. Never for the dapp itself. */
 export function useTerrarium(): WorkerProvider | null { return useContext(Ctx); }
 
+export interface TransactionsSnapshot { total: number; labels: Record<string, string>; transactions: any[] }
+
+/** The chain's transactions, newest first, decoded and labelled as the dev bar's explorer shows them (`terrarium_transactions`),
+ *  polled while mounted; null until the first answer. For your own dev tools: `const txs = useTransactions({ limit: 20 })`. */
+export function useTransactions({ limit = 50, pollMs = 1000 }: { limit?: number; pollMs?: number } = {}): TransactionsSnapshot | null {
+  const provider = useTerrarium();
+  const [data, setData] = useState<TransactionsSnapshot | null>(null);
+  useEffect(() => {
+    if (!provider) return;
+    let alive = true;
+    const tick = () => provider.request({ method: 'terrarium_transactions', params: [{ limit }] }).then((d) => { if (alive) setData(d as TransactionsSnapshot); }, () => {});
+    tick(); const timer = setInterval(tick, pollMs);
+    return () => { alive = false; clearInterval(timer); };
+  }, [provider, limit, pollMs]);
+  return data;
+}
+
 /** Only the dev bar, over any EIP-1193 provider that answers the terrarium_* methods (one you started yourself, or a
  *  `terrarium serve` endpoint some day). Mounts on the body as a fixed footer, removes itself on unmount. */
 export function DevBar({ provider }: { provider: { request(a: { method: string; params?: unknown[] }): Promise<any> } | null }) {

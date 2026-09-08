@@ -414,7 +414,8 @@ What matters here:
 | `pub`, `wallet(account)` | viem public and wallet clients on the chain; `wait(hashOrPromise)` for a receipt |
 | `sim` | the engine: `deal`, `setState`, `sendAs`, `snapshot`/`revert`, `mine`, `now()`, `random()` |
 | `rpc(method, params)` | any RPC method including cheatcodes (`anvil_setCode`, `evm_increaseTime`, …) |
-| `install(fixture)`, `codeAt(address)` | bytecode fixtures in; "is anything deployed here?" |
+| `install(fixture)`, `codeAt(address)` | bytecode fixtures in (contracts get named by their fixture keys in the dev bar's transaction explorer); "is anything deployed here?" |
+| `label(address, name, abi?)` | name an address in the transaction explorer and, with an ABI, decode its calls, events and custom errors; standard tokens, WETH and Uniswap V2 decode without it |
 | `deadline(seconds)` | a deadline from the **chain** clock (never `Date.now()`) |
 | `fresh`, `firstBoot` | block 0 (deploy here) / nothing persisted yet (seed the user here) |
 | `state` | a bag for what setup discovers and actors, `methods` and `status` need later |

@@ -25,6 +25,7 @@ export function Root() {
 |---|---|
 | `<Terrarium worker={() => Worker} devBar?>` | starts the Terrarium on mount (browser only), stops it on unmount; reuses one already on the page; children get `useTerrarium()` |
 | `useTerrarium()` | the wallet provider (null until ready), for your own dev tools: `useTerrarium()?.request({ method: 'terrarium_status' })` |
+| `useTransactions({ limit?, pollMs? })` | the chain's transactions newest first, decoded and labelled as the explorer shows them, polled while mounted |
 | `<DevBar provider>` | only the dev bar (controls, Hide button, transaction explorer), over any provider that answers the `terrarium_*` methods |
 
 > [!IMPORTANT]

@@ -89,8 +89,8 @@ funds) gets a failed receipt with `droppedReason` instead, so `waitForTransactio
 | `status(ctx)` | extra fields merged into `terrarium_status` |
 | `methods` | `{ terrarium_x: (ctx, ...args) => result }` |
 | `http` | `HttpRoute[]`: the dapp's HTTP calls to answer from the chain (see [HTTP routes](#http-routes-terrariumhttp)) |
-| `abis` | `Abi[]` used by `terrarium_transactions` (the dev bar's transaction explorer) to decode calls (`method: { name, args }`), events (`logs[i].decoded: { name, args }`) and custom errors (`revert: { name, args }`); what they do not cover is shown raw (`method: { selector }`, topics + data, `revertData`). `Error(string)` and `Panic` decode without an ABI |
-| `labels` | `{ [address]: name }` or `(ctx) => {...}` for addresses known after setup: names shown in the explorer instead of addresses. The sim's accounts are `Account #i` unless named |
+| `abis` | extra `Abi[]` for `terrarium_transactions` (the dev bar's transaction explorer). Decoding order for a call (`method: { name, args }`), an event (`logs[i].decoded: { name, args }`) or a custom error (`revert: { name, args }`): the address's own ABI from `ctx.label(address, name, abi)`, then these, then the **built-in known ABI** (ERC-20/721/1155/4626 events and functions, WETH, Uniswap V2 pair/factory, Uniswap V3 Swap, Ownable, pausable, proxies, roles, OpenZeppelin 5 custom errors, `Error(string)`, `Panic`). What nothing covers is shown raw (`method: { selector }`, topics + data, `revertData`) |
+| `labels` | `{ [address]: name }` for addresses known up front. Addresses discovered in `setup` are named with `ctx.label(address, name)`; `install(fixture)` names contracts by their fixture keys; the sim's accounts are `Account #i` unless named. Precedence: `ctx.label` > `labels` > fixture keys > accounts |
 
 `ctx`: `sim`, `chainId`, `accounts`, `rpc(method, params)`, `pub` (viem public client), `wallet(account)` (viem wallet
 client signing with the sim's keys), `wait(hashOrPromise)`, `deadline(seconds = 3600)` (chain clock), `random()`,
@@ -98,7 +98,9 @@ client signing with the sim's keys), `wait(hashOrPromise)`, `deadline(seconds = 
 `firstBoot` (nothing persisted yet, even if a fixture was restored: the once-only hook for fork scenarios), `codeAt(address)`,
 `install(fixture)` (a code fixture: writes each contract's code only where there is none; an Anvil state fixture from `terrarium import-anvil`: whole
 accounts through `anvil_loadState`, contracts skipped once they have code, plain accounts written only on a fresh chain), `reload()` (asks the page
-to reload, for a method that reset or rebuilt the chain), `state` (free-form bag).
+to reload, for a method that reset or rebuilt the chain), `label(address, name, abi?)` (name an address in the transaction explorer,
+optionally with the ABI that decodes its calls, events and custom errors; `install` names fixture contracts by their keys), `state`
+(free-form bag).
 
 ## HTTP routes  (`@terrariumlabs/core/http`)
 The page's `fetch` is patched by `startTerrarium`; requests matching a scenario `http` route are posted to the Worker and
@@ -143,7 +145,7 @@ installed. Also exported: `workerEntry(scenarioImport)`, `reactMountEntry(devBar
 ## CLI  (`npx terrarium`)
 The `terrarium` binary ships with `@terrariumlabs/core`; `npx terrarium …` finds it in a project that has the package installed
 (elsewhere: `npx -p @terrariumlabs/core terrarium …`, since a bare `npx terrarium` resolves to an unrelated npm package).
-- `terrarium build [--scenario file] [--out dir]`: one injectable classic script `dist-terrarium/terrarium.js` (IIFE,
+- `terrarium build [--scenario file] [--out dir] [--devbar hidden|off]`: one injectable classic script `dist-terrarium/terrarium.js` (IIFE,
   Worker bundle and wasm embedded, ≈2.8 MB) plus `terrarium.worker.js`. Built with Vite from the cwd, so the scenario's
   `import.meta.env.VITE_*` come from the cwd's `.env` files.
 - `terrarium fetch-code <name=0xaddress>... --rpc <url> [--block N] [--chain ID] [--out fixture.json]`: runtime bytecode
@@ -196,9 +198,9 @@ dependencies (k256 / ark / pure-Rust KZG fallbacks). `engine.js` drives it; you 
 
 ## Injected page globals
 `startTerrarium(worker, { devBar? })` from `@terrariumlabs/core/inject` wires a Worker up as the wallet, sets the globals below and
-mounts the dev bar (`devBar: false` skips it); it returns the provider. Starting again replaces the previous instance.
+mounts the dev bar (`devBar: 'hidden'` mounts it collapsed to the leaf, `devBar: false` skips it); it returns the provider. Starting again replaces the previous instance.
 `stopTerrarium()` undoes it: stops announcing, terminates the Worker, removes the dev bar and `window.terrarium`.
-`mountDevBar(provider)` from `@terrariumlabs/core/devbar` mounts only the bar over any provider answering the `terrarium_*` methods.
+`mountDevBar(provider, { hidden? })` from `@terrariumlabs/core/devbar` mounts only the bar over any provider answering the `terrarium_*` methods.
 
 `window.terrarium = { provider, request(method, params) }`: the wallet's own global, like `window.ethereum`. For tests
 and the console, never for the dapp. A `reload` event from the Worker (`ctx.reload()` in a scenario method that reset or rebuilt the
@@ -210,7 +212,8 @@ wallet-latency receipt-lag txs reset hide`, and `control-<i>` for the scenario's
 newest first with status, block, time, hash, decoded method, labelled from/to, value, gas and event count (`tx-row`, with
 `data-hash` and `data-status`); a click expands it (`tx-detail`: receipt fields, decoded call and arguments, raw input, revert
 reason and data, `tx-events` with each event decoded or as topics + data). `hide` hides the bar; a leaf button at the bottom
-right (`show`, `#terrarium-devbar-show`) brings it back, and the choice is remembered in `localStorage` (`terrarium:devbar-hidden`).
+right (`show`, `#terrarium-devbar-show`) brings it back, and the choice is remembered in `localStorage` (`terrarium:devbar-hidden`),
+winning over the `devBar: 'hidden'` default of the plugin / `startTerrarium` / `--devbar hidden`.
 `unmountDevBar()` removes bar, panel and leaf.
 
 ## `@terrariumlabs/react`
@@ -221,6 +224,7 @@ cannot use the Vite plugin. Guide with the Next.js and Storybook recipes: [integ
 |---|---|
 | `<Terrarium worker={() => Worker} devBar? defer? children?>` | on mount (browser only; a no-op in SSR) creates the Worker, calls `startTerrarium`, on unmount `stopTerrarium`; reuses a Terrarium already on the page; children get the provider through context. `defer` renders the children only once the wallet is announced (one tick), for wallet libraries that reconnect during their first render (wagmi) |
 | `useTerrarium()` | the `WorkerProvider` (null until ready) |
+| `useTransactions({ limit = 50, pollMs = 1000 })` | `{ total, labels, transactions }` from `terrarium_transactions`, polled while mounted (null until the first answer): the explorer's data for your own dev tools |
 | `<DevBar provider>` | only the dev bar (with its Hide button and transaction explorer), mounted while the component is mounted |
 
 Your source references the simulator with this package; guard the element with a build-time constant
